@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { color: #26352e; background: #f7f8f4; min-height: 100vh; }
+::selection { background: #dceee2; color: #19392c; }
+:focus-visible { outline: 2px solid #3e8960; outline-offset: 4px; }
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .font-editorial { font-family: Georgia, 'Times New Roman', serif; letter-spacing: -0.035em; }
+}
+@layer components {
+  .btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none; }
+  .btn-primary { @apply btn bg-primary-600 text-white hover:bg-primary-700; }
+  .btn-secondary { @apply btn border border-gray-200 bg-white text-gray-900 hover:bg-gray-100; }
+  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700; }
+  .btn-ghost { @apply btn bg-transparent hover:bg-gray-100; }
+  .input { @apply flex h-11 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 transition-shadow focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500; }
+  .label { @apply text-sm font-medium text-gray-700; }
+  .card { @apply rounded-2xl border border-gray-200 bg-white p-6 shadow-sm; }
+}
+.notebook-paper {
+  background-color: #fffef8;
+  background-image: linear-gradient(#286b4912 1px, transparent 1px);
+  background-size: 100% 32px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

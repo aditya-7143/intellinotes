@@ -1,0 +1,70 @@
+[project]
+name = "intellinotes-backend"
+version = "0.1.0"
+description = "IntelliNotes API - Agentic note-taking with human-in-the-loop"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.110.1",
+    "uvicorn[standard]==0.29.0",
+    "sqlalchemy==2.0.30",
+    "asyncpg==0.29.0",
+    "alembic==1.13.1",
+    "pydantic==2.7.1",
+    "pydantic-settings==2.3.3",
+    "python-jose[cryptography]==3.3.0",
+    "passlib[bcrypt]==1.7.4",
+    "python-multipart==0.0.9",
+    "httpx==0.27.0",
+    "boto3==1.34.100",
+    "aiofiles==24.1.0",
+    "greenlet==3.1.1",
+    "argon2-cffi==23.1.0",
+    "ollama==0.3.1",
+    "openai==1.30.1",
+    "anthropic==0.25.1",
+    "python-dotenv==1.0.1",
+    "email-validator==2.1.0.post1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.2.1",
+    "pytest-asyncio==0.23.3",
+    "pytest-cov==5.0.0",
+    "httpx==0.27.0",
+    "faker==24.5.0",
+    "ruff==0.4.4",
+    "mypy==1.10.0",
+]
+
+[tool.uv]
+dev-dependencies = []
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501", "UP007"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+strict_optional = true
+ignore_missing_imports = true
