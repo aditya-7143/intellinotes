@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { structuringApi } from '@/lib/api';
-import { StructuringProposal, ProposedStructure } from '@/types';
+import { StructuringProposal, ProposedStructure, CreateNoteOperation } from '@/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -12,70 +12,54 @@ import { Sparkles, FileText, FolderGit2, ArrowRight, CheckCircle, XCircle, Messa
 import { format } from 'date-fns';
 import { clsx } from 'clsx';
 
-function StructureTree({ structure, level = 0 }: { structure: ProposedStructure; level?: number }) {
-  const renderFolders = (folders: ProposedStructure['folders'], depth = 0) => (
-    <div className="space-y-1">
-      {folders.map((folder, index) => (
-        <div key={folder.path + index} className="flex items-center gap-2 text-sm">
-          <span className={clsx('flex-1 truncate', depth > 0 && 'pl-4')}>
-            <FolderGit2 className="h-4 w-4 text-amber-600 inline mr-1" />
-            {folder.name}
-            <span className="text-gray-400 ml-2 text-xs">({folder.path})</span>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-
-  const renderNotes = (notes: ProposedStructure['notes']) => (
-    <div className="space-y-2 mt-2">
-      {notes.map((note, index) => (
-        <div key={note.title + index} className="border-l-2 border-primary-200 dark:border-primary-800 pl-4 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-r">
-          <div className="flex items-start gap-2">
-            <FileText className="h-4 w-4 text-primary-600 mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <h4 className="font-medium text-gray-900 dark:text-white truncate">{note.title}</h4>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">{note.content}</p>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {note.tags.map(tag => (
-                  <span key={tag} className="px-2 py-0.5 text-xs bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded">
-                    {tag}
-                  </span>
-                ))}
-                {note.folder_path !== '/' && (
-                  <span className="px-2 py-0.5 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded flex items-center gap-1">
-                    <FolderGit2 className="h-3 w-3" />
-                    {note.folder_path}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
+function StructureTree({ structure }: { structure: ProposedStructure }) {
+  const creates: CreateNoteOperation[] = structure.operations
+    ? structure.operations.filter((operation): operation is CreateNoteOperation => operation.action === 'create')
+    : (structure.notes || []).map(note => ({ ...note, action: 'create' as const }));
+  const updates = structure.operations?.filter(operation => operation.action === 'update') || [];
   return (
     <div className="space-y-4">
-      {structure.folders.length > 0 && (
-        <div>
-          <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-            <FolderGit2 className="h-4 w-4 text-amber-600" />
-            Folders ({structure.folders.length})
-          </h4>
-          {renderFolders(structure.folders)}
+      {structure.folders.length > 0 && <div>
+        <h4 className="font-medium mb-2">Proposed folders</h4>
+        {structure.folders.map(folder => <p key={folder.path} className="text-sm">{folder.path}</p>)}
+      </div>}
+      {creates.map((note, index) => (
+        <div key={`${note.title}-${index}`} className="rounded border border-gray-200 dark:border-gray-700 p-4 space-y-2">
+          <h4 className="font-medium">Create: {note.title}</h4>
+          <p className="text-sm text-gray-500">{note.folder_path}</p>
+          {note.reason && <p className="text-sm">{note.reason}</p>}
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm bg-gray-50 dark:bg-gray-800 p-3 rounded">{note.content}</pre>
+          <p className="text-xs text-gray-500">{note.tags.join(', ')}</p>
         </div>
-      )}
-      {structure.notes.length > 0 && (
-        <div>
-          <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-            <FileText className="h-4 w-4 text-primary-600" />
-            Notes ({structure.notes.length})
-          </h4>
-          {renderNotes(structure.notes)}
-        </div>
-      )}
+      ))}
+      {updates.map(operation => {
+        const preview = structure._review?.updates.find(update => update.note_id === operation.note_id);
+        return <div key={operation.note_id} className="rounded border border-primary-200 dark:border-primary-800 p-4 space-y-3">
+          <h4 className="font-medium">Update: {preview?.title || operation.note_id}</h4>
+          {preview && <p className="text-sm text-gray-500">{preview.folder_path}</p>}
+          <p className="text-sm">{operation.reason}</p>
+          {operation.edits.map((edit, index) => <p key={index} className="text-xs text-gray-500">
+            {edit.action.replace('_', ' ')}{edit.target_section ? ` — ${edit.target_section}` : ''}
+          </p>)}
+          {preview ? <>
+            <details open>
+              <summary className="cursor-pointer text-sm font-medium">Changes</summary>
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm bg-gray-50 dark:bg-gray-800 p-3 rounded mt-2">{preview.diff}</pre>
+            </details>
+            <div className="grid gap-3 md:grid-cols-2">
+              <details><summary className="cursor-pointer text-sm">Before</summary>
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm mt-2">{preview.before}</pre>
+              </details>
+              <details><summary className="cursor-pointer text-sm">After</summary>
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm mt-2">{preview.after}</pre>
+              </details>
+            </div>
+          </> : operation.edits.map((edit, index) => <div key={index}>
+            <p className="text-sm">Anchor: {edit.anchor}</p>
+            <pre className="whitespace-pre-wrap text-sm">{edit.content}</pre>
+          </div>)}
+        </div>;
+      })}
     </div>
   );
 }
@@ -287,7 +271,7 @@ export default function OrganizePage() {
     try {
       const proposal = proposals.find(p => p.id === id);
       if (!proposal) return;
-      const res = await structuringApi.create({ snippet: proposal.input_snippet, context: undefined });
+      const res = await structuringApi.create({ snippet: proposal.input_snippet, context: proposal.proposed_structure._request_context || undefined });
       setProposals([res.data, ...proposals.filter(p => p.id !== id)]);
     } catch (error) {
       setError('Unable to regenerate the proposal. Please try again.');

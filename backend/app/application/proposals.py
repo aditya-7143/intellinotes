@@ -28,6 +28,7 @@ class CreateNoteOperation(BaseModel):
     content: str = Field(min_length=1)
     folder_path: str = "/"
     tags: list[str] = Field(default_factory=list)
+    reason: str = Field(default="", max_length=2000)
 
     @field_validator("title")
     @classmethod
@@ -61,6 +62,7 @@ class UpdateNoteOperation(BaseModel):
     note_id: UUID
     base_version: str = Field(pattern=r"^[a-f0-9]{64}$")
     edits: list[ProposedEdit] = Field(min_length=1)
+    reason: str = Field(default="", max_length=2000)
 
 
 class EditProposal(BaseModel):
@@ -85,7 +87,11 @@ def parse_proposal(structure: dict) -> EditProposal:
                 "operations": [{**note, "action": "create"} for note in structure["notes"]],
             }
         else:
-            structure = {key: value for key, value in structure.items() if key != "_acceptance"}
+            structure = {
+                key: value
+                for key, value in structure.items()
+                if key not in {"_acceptance", "_review", "_request_context"}
+            }
         proposal = EditProposal.model_validate(structure)
     except (SchemaError, TypeError, ValueError) as error:
         raise ValidationError("AI proposal has an invalid structure") from error

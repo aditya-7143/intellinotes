@@ -18,6 +18,7 @@ from app.application.proposals import (
     apply_edits,
     parse_proposal,
 )
+from app.application.structuring_graph import StructuringWorkflow
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging import log_operation
 from app.core.paths import validate_folder_path, validate_note_title, validate_relative_path
@@ -30,6 +31,8 @@ logger = logging.getLogger("intellinotes.structuring")
 class CreateStructuringProposalUseCase:
     proposal_repo: ProposalRepository
     llm_provider: LLMProvider
+    note_repo: NoteRepository
+    folder_repo: FolderRepository
 
     @log_operation("proposal.create")
     async def execute(
@@ -38,7 +41,10 @@ class CreateStructuringProposalUseCase:
         if not snippet.strip():
             raise ValidationError("Snippet cannot be empty")
 
-        proposed_structure = await self.llm_provider.structure_notes(snippet, context)
+        proposed_structure = await StructuringWorkflow(
+            self.note_repo, self.folder_repo, self.llm_provider
+        ).execute(user_id, snippet, context)
+        proposed_structure["_request_context"] = context
         parse_proposal(proposed_structure)
 
         proposal = StructuringProposal(
@@ -249,6 +255,8 @@ class RejectProposalUseCase:
 class FeedbackProposalUseCase:
     proposal_repo: ProposalRepository
     llm_provider: LLMProvider
+    note_repo: NoteRepository
+    folder_repo: FolderRepository
 
     @log_operation("proposal.feedback")
     async def execute(self, proposal_id: UUID, user_id: UUID, feedback: str) -> StructuringProposal:
@@ -259,7 +267,14 @@ class FeedbackProposalUseCase:
         if proposal.status != ProposalStatus.PENDING:
             raise ValidationError("Proposal already processed")
 
-        refined = await self.llm_provider.refine_structure(proposal.proposed_structure, feedback)
+        if not feedback.strip():
+            raise ValidationError("Feedback cannot be empty")
+        context = proposal.proposed_structure.get("_request_context")
+        previous = parse_proposal(proposal.proposed_structure).model_dump(mode="json")
+        refined = await StructuringWorkflow(
+            self.note_repo, self.folder_repo, self.llm_provider
+        ).execute(user_id, proposal.input_snippet, context, previous, feedback)
+        refined["_request_context"] = context
         parse_proposal(refined)
         proposal.proposed_structure = refined
         proposal.feedback = feedback

@@ -41,12 +41,46 @@ export interface StructuringProposal {
   updated_at: string;
 }
 
+export interface CreateNoteOperation {
+  action: 'create';
+  title: string;
+  content: string;
+  folder_path: string;
+  tags: string[];
+  reason?: string;
+}
+
+export interface UpdateNoteOperation {
+  action: 'update';
+  note_id: string;
+  base_version: string;
+  reason?: string;
+  edits: Array<{
+    action: 'replace' | 'insert_before' | 'insert_after';
+    anchor: string;
+    content: string;
+    target_section?: string | null;
+  }>;
+}
+
 export interface ProposedStructure {
+  schema_version?: 2;
+  operations?: Array<CreateNoteOperation | UpdateNoteOperation>;
+  _request_context?: string | null;
+  _review?: { updates: Array<{
+    note_id: string;
+    title: string;
+    folder_path: string;
+    before: string;
+    after: string;
+    diff: string;
+  }> };
+
   folders: Array<{
     name: string;
     path: string;
   }>;
-  notes: Array<{
+  notes?: Array<{
     title: string;
     content: string;
     folder_path: string;

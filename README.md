@@ -2,11 +2,31 @@
 
 An agentic note-taking application with human-in-the-loop structuring. Paste code snippets or unstructured text, and AI will organize them into a proper folder structure with notes. You review, accept, reject, or provide feedback for revisions.
 
+Snippet processing now runs through a LangGraph workflow: retrieve relevant library
+sections → draft a refined create/update proposal → validate → human review. The AI
+can propose inserting content into an existing Markdown section, explain placement,
+or create a new note. The review screen shows complete new notes and a diff plus
+before/after content for updates. Nothing is saved to the library until acceptance.
+
+The first retrieval implementation uses BM25-style keyword ranking over the current
+user's notes, split at Markdown headings (excluding headings inside fenced code).
+It supplies up to five sections and existing folder paths to the configured LLM.
+It reads current database content on every request, so edits/deletes need no index
+refresh. No embedding API, vector database, migration, or new environment variables
+are required. This is lexical retrieval; semantic embeddings/pgvector and a persistent
+index are future work. Scanning a library per request is intended for small libraries.
+
+Feedback reruns retrieval and validation with the original snippet and instructions.
+The original snippet is retained. Refinement prompts preserve meaning and code
+behavior; review remains necessary to assess AI output. Updates must reference a
+retrieved note, its exact version, and unique edit anchors. Acceptance rechecks the
+version and stored file before applying changes.
+
 ## Features
 
 - **Authentication**: JWT-based auth with access/refresh tokens
 - **Agentic Note Structuring**: Paste snippets → AI proposes folder/note structure → Human reviews → Accept/Reject/Feedback
-- **Multi-LLM Support**: Ollama (local), OpenAI, Anthropic
+- **Multi-LLM Support**: Ollama (local), OpenAI, Anthropic, OpenRouter
 - **Flexible Storage**: Local filesystem or S3-compatible (MinIO, AWS S3, GCS)
 - **Folder Management**: Hierarchical folders with path-based organization
 - **Note Management**: Markdown notes with tags, search, and folder organization
@@ -140,12 +160,12 @@ npm run dev
 - `DELETE /api/v1/notes/{id}` - Delete note
 
 ### Structuring (Agentic)
-- `POST /api/v1/notes/structure` - Create structuring proposal
-- `GET /api/v1/notes/structure` - List proposals
-- `GET /api/v1/notes/structure/{id}` - Get proposal
-- `POST /api/v1/notes/structure/{id}/accept` - Accept proposal
-- `POST /api/v1/notes/structure/{id}/reject` - Reject proposal
-- `POST /api/v1/notes/structure/{id}/feedback` - Provide feedback for revision
+- `POST /api/v1/structuring` - Create structuring proposal
+- `GET /api/v1/structuring` - List proposals
+- `GET /api/v1/structuring/{id}` - Get proposal
+- `POST /api/v1/structuring/{id}/accept` - Accept proposal
+- `POST /api/v1/structuring/{id}/reject` - Reject proposal
+- `POST /api/v1/structuring/{id}/feedback` - Provide feedback for revision
 
 ## Agentic Workflow
 
@@ -176,6 +196,9 @@ npm run dev
 # Backend
 cd backend
 pytest
+
+# The tests also run with Python's unittest runner:
+DEBUG=false python -m unittest discover -s tests -v
 
 # Frontend
 cd frontend

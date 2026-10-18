@@ -36,8 +36,10 @@ async def create_structuring_proposal(
     user_id=Depends(get_current_user_id),
     proposal_repo=Depends(get_proposal_repo),
     llm=Depends(get_llm),
+    note_repo=Depends(get_note_repo),
+    folder_repo=Depends(get_folder_repo),
 ):
-    use_case = CreateStructuringProposalUseCase(proposal_repo, llm)
+    use_case = CreateStructuringProposalUseCase(proposal_repo, llm, note_repo, folder_repo)
     proposal = await use_case.execute(user_id, request.snippet, request.context)
     return proposal
 
@@ -108,11 +110,13 @@ async def feedback_proposal(
     user_id=Depends(get_current_user_id),
     proposal_repo=Depends(get_proposal_repo),
     llm=Depends(get_llm),
+    note_repo=Depends(get_note_repo),
+    folder_repo=Depends(get_folder_repo),
 ):
     if action.action != "feedback":
         from fastapi import HTTPException, status
 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action")
-    use_case = FeedbackProposalUseCase(proposal_repo, llm)
+    use_case = FeedbackProposalUseCase(proposal_repo, llm, note_repo, folder_repo)
     proposal = await use_case.execute(proposal_id, user_id, action.feedback or "")
     return proposal
