@@ -18,8 +18,11 @@ class SQLAlchemyNoteRepository(NoteRepository):
         await self.session.refresh(note)
         return note
 
-    async def get_by_id(self, note_id: UUID) -> Optional[Note]:
-        result = await self.session.execute(select(Note).where(Note.id == note_id))
+    async def get_by_id(self, note_id: UUID, for_update: bool = False) -> Optional[Note]:
+        query = select(Note).where(Note.id == note_id)
+        if for_update:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
     async def get_by_user(self, user_id: UUID, folder_id: Optional[UUID] = None) -> list[Note]:

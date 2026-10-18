@@ -1,10 +1,13 @@
 import os
+from pathlib import Path
 from typing import Optional
 
 import aiofiles
 
 from app.core.config import get_settings
+from app.core.exceptions import ValidationError
 from app.core.logging import log_operation
+from app.core.paths import validate_relative_path
 from app.infrastructure.storage.base import BaseStorage
 
 settings = get_settings()
@@ -16,7 +19,12 @@ class LocalStorage(BaseStorage):
         os.makedirs(self.base_path, exist_ok=True)
 
     def _get_full_path(self, key: str) -> str:
-        return os.path.join(self.base_path, key.lstrip("/"))
+        validate_relative_path(key)
+        base = Path(self.base_path).resolve()
+        path = (base / key).resolve()
+        if not path.is_relative_to(base):
+            raise ValidationError("Storage path escapes the configured directory")
+        return str(path)
 
     @log_operation("storage.save")
     async def save(self, key: str, content: bytes) -> str:
@@ -49,7 +57,11 @@ class LocalStorage(BaseStorage):
 
     @log_operation("storage.list_keys")
     async def list_keys(self, prefix: str) -> list[str]:
-        full_prefix = self._get_full_path(prefix)
+        full_prefix = (
+            self._get_full_path(prefix.rstrip("/"))
+            if prefix
+            else str(Path(self.base_path).resolve())
+        )
         keys = []
         for root, _, files in os.walk(full_prefix):
             for file in files:

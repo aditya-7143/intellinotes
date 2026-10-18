@@ -10,7 +10,12 @@ from app.api.v1.deps import (
     get_proposal_repo,
     get_storage_repo,
 )
-from app.application.dtos import ProposalAction, StructureRequest, StructuringProposalResponse
+from app.application.dtos import (
+    AcceptProposalResponse,
+    ProposalAction,
+    StructureRequest,
+    StructuringProposalResponse,
+)
 from app.application.use_cases.structuring import (
     AcceptProposalUseCase,
     CreateStructuringProposalUseCase,
@@ -19,6 +24,8 @@ from app.application.use_cases.structuring import (
     ListProposalsUseCase,
     RejectProposalUseCase,
 )
+from app.infrastructure.database.acceptance import SQLAlchemyAcceptanceTransaction
+from app.infrastructure.database.session import get_db
 
 router = APIRouter(prefix="/structuring", tags=["structuring"])
 
@@ -62,7 +69,7 @@ async def get_proposal(
     return proposal
 
 
-@router.post("/{proposal_id}/accept", response_model=dict)
+@router.post("/{proposal_id}/accept", response_model=AcceptProposalResponse)
 async def accept_proposal(
     proposal_id: UUID,
     user_id=Depends(get_current_user_id),
@@ -70,9 +77,15 @@ async def accept_proposal(
     folder_repo=Depends(get_folder_repo),
     note_repo=Depends(get_note_repo),
     storage_repo=Depends(get_storage_repo),
-    llm=Depends(get_llm),
+    db=Depends(get_db),
 ):
-    use_case = AcceptProposalUseCase(proposal_repo, folder_repo, note_repo, storage_repo, llm)
+    use_case = AcceptProposalUseCase(
+        proposal_repo,
+        folder_repo,
+        note_repo,
+        storage_repo,
+        SQLAlchemyAcceptanceTransaction(db, storage_repo),
+    )
     result = await use_case.execute(proposal_id, user_id)
     return result
 

@@ -7,6 +7,7 @@ from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.domain.versions import note_version
 from app.infrastructure.database.session import Base
 
 
@@ -95,6 +96,10 @@ class Note(Base):
     folder: Mapped[Optional["Folder"]] = relationship(back_populates="notes", lazy="selectin")
 
     __table_args__ = (Index("ix_notes_user_folder", "user_id", "folder_id"),)
+
+    @property
+    def version(self) -> str:
+        return note_version(self)
 
 
 class StructuringProposal(Base):

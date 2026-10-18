@@ -101,9 +101,30 @@ class NoteResponse(NoteBase):
     storage_key: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    version: str
 
     class Config:
         from_attributes = True
+
+
+class AcceptedFolderResponse(BaseModel):
+    """Acceptance returns flat folders, avoiding lazy relationship serialization."""
+
+    id: UUID
+    user_id: UUID
+    name: str
+    parent_id: Optional[UUID] = None
+    path: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AcceptProposalResponse(BaseModel):
+    folders: list[AcceptedFolderResponse]
+    notes: list[NoteResponse]
 
 
 class StructuringProposalBase(BaseModel):

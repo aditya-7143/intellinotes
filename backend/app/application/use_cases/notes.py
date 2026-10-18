@@ -90,7 +90,7 @@ class UpdateNoteUseCase:
         folder_id: Optional[UUID] = None,
         tags: Optional[list[str]] = None,
     ) -> Note:
-        note = await self.note_repo.get_by_id(note_id)
+        note = await self.note_repo.get_by_id(note_id, for_update=True)
         if not note or note.user_id != user_id:
             raise NotFoundError("Note not found")
 
@@ -132,7 +132,7 @@ class DeleteNoteUseCase:
     storage_repo: StorageRepository
 
     async def execute(self, note_id: UUID, user_id: UUID) -> bool:
-        note = await self.note_repo.get_by_id(note_id)
+        note = await self.note_repo.get_by_id(note_id, for_update=True)
         if not note or note.user_id != user_id:
             raise NotFoundError("Note not found")
 

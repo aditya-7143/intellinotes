@@ -3,17 +3,25 @@ from dataclasses import dataclass
 from typing import Optional
 from uuid import UUID
 
+from app.application.dtos import AcceptedFolderResponse, AcceptProposalResponse, NoteResponse
 from app.application.ports import (
+    AcceptanceTransaction,
     FolderRepository,
     LLMProvider,
     NoteRepository,
     ProposalRepository,
     StorageRepository,
 )
-from app.core.exceptions import NotFoundError, ValidationError
+from app.application.proposals import (
+    CreateNoteOperation,
+    UpdateNoteOperation,
+    apply_edits,
+    parse_proposal,
+)
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging import log_operation
+from app.core.paths import validate_folder_path, validate_note_title, validate_relative_path
 from app.domain.models import Folder, Note, ProposalStatus, StructuringProposal
-
 
 logger = logging.getLogger("intellinotes.structuring")
 
@@ -31,6 +39,7 @@ class CreateStructuringProposalUseCase:
             raise ValidationError("Snippet cannot be empty")
 
         proposed_structure = await self.llm_provider.structure_notes(snippet, context)
+        parse_proposal(proposed_structure)
 
         proposal = StructuringProposal(
             user_id=user_id,
@@ -72,99 +81,151 @@ class AcceptProposalUseCase:
     folder_repo: FolderRepository
     note_repo: NoteRepository
     storage_repo: StorageRepository
-    llm_provider: LLMProvider
+    transaction: AcceptanceTransaction
 
     @log_operation("proposal.accept")
-    async def execute(self, proposal_id: UUID, user_id: UUID) -> dict:
-        proposal = await self.proposal_repo.get_by_id(proposal_id)
-        if not proposal or proposal.user_id != user_id:
-            raise NotFoundError("Proposal not found")
+    async def execute(self, proposal_id: UUID, user_id: UUID) -> AcceptProposalResponse:
+        try:
+            await self.transaction.lock_user(user_id)
+            proposal = await self.proposal_repo.get_by_id(proposal_id, for_update=True)
+            if not proposal or proposal.user_id != user_id:
+                raise NotFoundError("Proposal not found")
+            if proposal.status == ProposalStatus.ACCEPTED:
+                receipt = proposal.proposed_structure.get("_acceptance")
+                if receipt:
+                    return AcceptProposalResponse.model_validate(receipt)
+                raise ConflictError("Proposal was already accepted")
+            if proposal.status != ProposalStatus.PENDING:
+                raise ConflictError("Proposal already processed")
 
-        if proposal.status != ProposalStatus.PENDING:
-            raise ValidationError("Proposal already processed")
-
-        structure = proposal.proposed_structure
-        created_folders: dict[str, Folder] = {}
-        created_notes: list[Note] = []
-
-        for folder_data in structure.get("folders", []):
-            folder = await self._create_folder_recursive(
-                user_id, folder_data, created_folders, self.folder_repo
+            structure = parse_proposal(proposal.proposed_structure)
+            created_folders: dict[str, Folder] = {}
+            targets: dict[UUID, Note] = {}
+            replacements: dict[UUID, str] = {}
+            # Lock update targets in a stable order to avoid deadlocks.
+            updates = sorted(
+                (op for op in structure.operations if isinstance(op, UpdateNoteOperation)),
+                key=lambda op: str(op.note_id),
             )
-            created_folders[folder_data["path"]] = folder
+            for operation in updates:
+                note = await self.note_repo.get_by_id(operation.note_id, for_update=True)
+                if not note or note.user_id != user_id:
+                    raise NotFoundError("Target note not found")
+                if note.version != operation.base_version:
+                    raise ConflictError("Target note changed; regenerate the proposal")
+                validate_note_title(note.title)
+                validate_folder_path(note.folder_path)
+                key = note.storage_key or self._storage_key(user_id, note.folder_path, note.title)
+                validate_relative_path(key)
+                if not key.startswith(f"{user_id}/"):
+                    raise ValidationError("Target file is outside the user's library")
+                if await self.storage_repo.get(key) != note.content.encode():
+                    raise ConflictError(
+                        "Target file differs from the note; reconcile it before updating"
+                    )
+                targets[note.id] = note
+                replacements[note.id] = apply_edits(note.content, operation.edits)
 
-        for note_data in structure.get("notes", []):
-            folder_path = note_data.get("folder_path", "/")
-            note_folder: Optional[Folder] = created_folders.get(folder_path)
-            if not note_folder and folder_path != "/":
-                note_folder = await self.folder_repo.get_by_path(user_id, folder_path)
-                if note_folder:
-                    created_folders[folder_path] = note_folder
+            # Reject every collision before changing folders, files, or notes.
+            for operation in structure.operations:
+                if isinstance(operation, CreateNoteOperation):
+                    key = self._storage_key(user_id, operation.folder_path, operation.title)
+                    if await self.note_repo.get_by_storage_key(
+                        key
+                    ) or await self.storage_repo.exists(key):
+                        raise ConflictError("A note already exists at a proposed destination")
 
-            folder_id = note_folder.id if note_folder else None
+            for folder in structure.folders:
+                await self._ensure_folder(user_id, folder.path, created_folders)
 
-            note = Note(
-                user_id=user_id,
-                folder_id=folder_id,
-                title=note_data["title"],
-                content=note_data["content"],
-                folder_path=folder_path,
-                tags=note_data.get("tags", []),
+            saved_notes = []
+            for operation in structure.operations:
+                if isinstance(operation, CreateNoteOperation):
+                    folder = await self._ensure_folder(
+                        user_id, operation.folder_path, created_folders
+                    )
+                    key = self._storage_key(user_id, operation.folder_path, operation.title)
+                    await self.transaction.save(key, operation.content.encode(), expected=None)
+                    note = Note(
+                        user_id=user_id,
+                        folder_id=folder.id if folder else None,
+                        title=operation.title,
+                        content=operation.content,
+                        folder_path=operation.folder_path,
+                        tags=operation.tags,
+                        storage_key=key,
+                    )
+                    note = await self.note_repo.create(note)
+                else:
+                    note = targets[operation.note_id]
+                    key = note.storage_key or self._storage_key(
+                        user_id, note.folder_path, note.title
+                    )
+                    await self.transaction.save(
+                        key, replacements[note.id].encode(), expected=note.content.encode()
+                    )
+                    note.content = replacements[note.id]
+                    note.storage_key = key
+                    note = await self.note_repo.update(note)
+                saved_notes.append(NoteResponse.model_validate(note))
+                logger.debug("Note staged proposal_id=%s note_id=%s", proposal_id, note.id)
+
+            response = AcceptProposalResponse(
+                folders=[
+                    AcceptedFolderResponse.model_validate(folder)
+                    for folder in created_folders.values()
+                ],
+                notes=saved_notes,
             )
+            # Cache the exact response for retrying a successful acceptance.
+            proposal.proposed_structure = {
+                **proposal.proposed_structure,
+                "_acceptance": response.model_dump(mode="json"),
+            }
+            proposal.status = ProposalStatus.ACCEPTED
+            await self.proposal_repo.update(proposal)
+            await self.transaction.commit()
+            logger.debug(
+                "Proposal committed proposal_id=%s notes=%d", proposal_id, len(saved_notes)
+            )
+            return response
+        except BaseException:
+            await self.transaction.rollback()
+            raise
 
-            storage_key = f"{user_id}{folder_path}/{note_data['title']}.md".replace("//", "/")
-            await self.storage_repo.save(storage_key, note_data["content"].encode())
-            note.storage_key = storage_key
+    @staticmethod
+    def _storage_key(user_id: UUID, folder_path: str, title: str) -> str:
+        key = f"{user_id}/{folder_path.strip('/')}/{title}.md".replace("//", "/")
+        validate_relative_path(key)
+        if len(key) > 1000:
+            raise ValidationError("Note storage path is too long")
+        return key
 
-            created = await self.note_repo.create(note)
-            created_notes.append(created)
-            logger.debug("Note staged proposal_id=%s note_id=%s folder_id=%s", proposal_id, created.id, folder_id)
-
-        logger.debug("Acceptance staged proposal_id=%s folders=%d notes=%d", proposal_id, len(created_folders), len(created_notes))
-        proposal.status = ProposalStatus.ACCEPTED
-        await self.proposal_repo.update(proposal)
-
-        return {
-            "folders": list(created_folders.values()),
-            "notes": created_notes,
-        }
-
-    async def _create_folder_recursive(
-        self,
-        user_id: UUID,
-        folder_data: dict,
-        created_folders: dict[str, Folder],
-        folder_repo: FolderRepository,
-    ) -> Folder:
-        path = folder_data["path"]
-        if path in created_folders:
-            return created_folders[path]
-
-        existing = await folder_repo.get_by_path(user_id, path)
-        if existing:
-            created_folders[path] = existing
-            return existing
-
-        # Calculate parent path
-        normalized = "/" + path.strip("/")
-        parts = normalized.split("/")
-        parent: Optional[Folder] = None
-        if len(parts) > 2:
-            parent_path = "/".join(parts[:-1])
-            parent = created_folders.get(parent_path)
-            if not parent:
-                parent = await folder_repo.get_by_path(user_id, parent_path)
-
-        folder = Folder(
-            user_id=user_id,
-            name=folder_data["name"],
-            parent_id=parent.id if parent else None,
-            path=path,
-        )
-        created = await folder_repo.create(folder)
-        created_folders[path] = created
-        logger.debug("Folder staged folder_id=%s parent_id=%s", created.id, created.parent_id)
-        return created
+    async def _ensure_folder(
+        self, user_id: UUID, path: str, folders: dict[str, Folder]
+    ) -> Optional[Folder]:
+        if path == "/":
+            return None
+        if path in folders:
+            return folders[path]
+        parent = await self._ensure_folder(user_id, path.rsplit("/", 1)[0] or "/", folders)
+        folder = await self.folder_repo.get_by_path(user_id, path)
+        if folder:
+            if folder.parent_id != (parent.id if parent else None):
+                raise ConflictError(
+                    "Existing folder hierarchy is inconsistent; repair it before saving"
+                )
+        else:
+            folder = await self.folder_repo.create(
+                Folder(
+                    user_id=user_id,
+                    name=path.rsplit("/", 1)[-1],
+                    parent_id=parent.id if parent else None,
+                    path=path,
+                )
+            )
+        folders[path] = folder
+        return folder
 
 
 @dataclass
@@ -173,7 +234,7 @@ class RejectProposalUseCase:
 
     @log_operation("proposal.reject")
     async def execute(self, proposal_id: UUID, user_id: UUID) -> StructuringProposal:
-        proposal = await self.proposal_repo.get_by_id(proposal_id)
+        proposal = await self.proposal_repo.get_by_id(proposal_id, for_update=True)
         if not proposal or proposal.user_id != user_id:
             raise NotFoundError("Proposal not found")
 
@@ -191,7 +252,7 @@ class FeedbackProposalUseCase:
 
     @log_operation("proposal.feedback")
     async def execute(self, proposal_id: UUID, user_id: UUID, feedback: str) -> StructuringProposal:
-        proposal = await self.proposal_repo.get_by_id(proposal_id)
+        proposal = await self.proposal_repo.get_by_id(proposal_id, for_update=True)
         if not proposal or proposal.user_id != user_id:
             raise NotFoundError("Proposal not found")
 
@@ -199,6 +260,7 @@ class FeedbackProposalUseCase:
             raise ValidationError("Proposal already processed")
 
         refined = await self.llm_provider.refine_structure(proposal.proposed_structure, feedback)
+        parse_proposal(refined)
         proposal.proposed_structure = refined
         proposal.feedback = feedback
         return await self.proposal_repo.update(proposal)

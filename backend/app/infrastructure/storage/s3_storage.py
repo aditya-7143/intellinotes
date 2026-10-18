@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 
 from app.core.config import get_settings
 from app.core.logging import log_operation
+from app.core.paths import validate_relative_path
 from app.infrastructure.storage.base import BaseStorage
 
 settings = get_settings()
@@ -32,7 +33,7 @@ class S3Storage(BaseStorage):
         )
 
     def _get_key(self, key: str) -> str:
-        return key.lstrip("/")
+        return validate_relative_path(key)
 
     @log_operation("storage.save")
     async def save(self, key: str, content: bytes) -> str:
@@ -73,7 +74,7 @@ class S3Storage(BaseStorage):
 
     @log_operation("storage.list_keys")
     async def list_keys(self, prefix: str) -> list[str]:
-        s3_prefix = self._get_key(prefix)
+        s3_prefix = self._get_key(prefix.rstrip("/")) if prefix else ""
         paginator = self.client.get_paginator("list_objects_v2")
         keys = []
         for page in paginator.paginate(Bucket=self.bucket, Prefix=s3_prefix):
