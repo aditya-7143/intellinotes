@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, folders, notes, structuring
+from app.api.v1 import auth, folders, indexing, notes, structuring
 from app.core.config import get_settings
 from app.core.logging import configure_logging, log_operation
 from app.infrastructure.database.session import close_db, init_db
@@ -22,6 +22,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(indexing.router, prefix="/api/v1")
     app.include_router(folders.router, prefix="/api/v1")
     app.include_router(structuring.router, prefix="/api/v1")
     app.include_router(notes.router, prefix="/api/v1")

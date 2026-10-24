@@ -98,8 +98,3 @@ export interface StructureRequest {
   snippet: string;
   context?: string;
 }
-
-export interface ProposalAction {
-  action: 'accept' | 'reject' | 'feedback';
-  feedback?: string;
-}

@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuthStore } from '@/features/auth/authStore';
-import { LayoutDashboard, FileText, FolderOpen, Sparkles, LogOut, Menu, X, ArrowUpRight, BookOpen, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Sparkles, LogOut, Menu, X, ArrowUpRight, BookOpen, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 
 const navItems = [

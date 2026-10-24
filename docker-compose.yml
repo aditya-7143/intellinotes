@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -28,13 +28,32 @@ services:
       - JWT_SECRET=your-super-secret-key-change-in-production
       - LLM_PROVIDER=ollama
       - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDING_BASE_URL=http://ollama:11434
+      - EMBEDDING_MODEL=nomic-embed-text
       - STORAGE_TYPE=local
       - LOCAL_STORAGE_PATH=/app/data/notes
       - CORS_ORIGINS=["http://localhost:3000"]
     depends_on:
       postgres:
         condition: service_healthy
+      index-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/intellinotes
+      - EMBEDDING_BASE_URL=http://ollama:11434
+      - EMBEDDING_MODEL=nomic-embed-text
+    depends_on:
+      postgres:
+        condition: service_healthy
       ollama:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: python -m app.infrastructure.rag.worker
+
+  ollama:
         condition: service_healthy
     volumes:
       - ./backend:/app

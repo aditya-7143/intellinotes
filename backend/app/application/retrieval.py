@@ -1,19 +1,13 @@
-"""Request-time section retrieval. No stale index or external embedding service."""
+"""Heading-aware chunks for semantic retrieval; splitting happens during indexing."""
 
-import math
 import re
-from collections import Counter
 from dataclasses import dataclass
+from typing import Protocol
+from uuid import UUID
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.domain.models import Note
-
-STOP_WORDS = set(
-    "a an the is are to of in on for and or with this that it be as at by from".split()
-)
-
-
-def tokens(text: str) -> list[str]:
-    return [word for word in re.findall(r"[\w+#.-]+", text.lower()) if word not in STOP_WORDS]
 
 
 @dataclass
@@ -45,32 +39,33 @@ def split_sections(note: Note) -> list[Section]:
     return sections
 
 
-def retrieve_sections(notes: list[Note], query: str, limit: int = 5) -> list[Section]:
-    """BM25-style lexical ranking, weighted toward titles, paths, tags and headings."""
-    sections = [section for note in notes for section in split_sections(note)]
-    documents = [
-        tokens(
-            f"{section.note.title} {section.note.folder_path} {' '.join(section.note.tags)} "
-            f"{section.heading} " * 3 + section.content
-        )
-        for section in sections
+class SectionRetriever(Protocol):
+    async def retrieve(self, user_id: UUID, query: str) -> list[Section]: ...
+
+
+def split_text(text: str, max_bytes: int = 1200) -> list[str]:
+    """Use LangChain to split at paragraph/line/word boundaries, preserving anchors."""
+    if max_bytes < 4:
+        raise ValueError("Chunk size must accommodate a UTF-8 character (at least 4 bytes)")
+    return RecursiveCharacterTextSplitter(
+        chunk_size=max_bytes,
+        chunk_overlap=0,
+        length_function=lambda value: len(value.encode("utf-8")),
+        keep_separator=True,
+        strip_whitespace=False,
+    ).split_text(text)
+
+
+def chunk_sections(note: Note) -> list[Section]:
+    return [
+        Section(note, section.heading, chunk)
+        for section in split_sections(note)
+        for chunk in split_text(section.content)
     ]
-    if not documents:
-        return []
-    frequencies = Counter(word for document in documents for word in set(document))
-    average = sum(map(len, documents)) / len(documents) or 1
-    ranked = []
-    for index, document in enumerate(documents):
-        counts = Counter(document)
-        score = 0.0
-        for word in set(tokens(query)):
-            count = counts[word]
-            inverse = math.log(
-                1 + (len(documents) - frequencies[word] + 0.5) / (frequencies[word] + 0.5)
-            )
-            score += inverse * count * 2.2 / (count + 1.2 * (0.25 + 0.75 * len(document) / average))
-        if score > 0:
-            ranked.append((score, index))
-    ranked.sort(key=lambda item: (-item[0], item[1]))
-    # Bound prompt size; only complete sections are used as exact edit anchors.
-    return [sections[index] for _, index in ranked if len(sections[index].content) <= 12000][:limit]
+
+
+def embedding_text(section: Section) -> str:
+    metadata = f"{section.note.title} | {section.note.folder_path} | {section.heading} | {' '.join(section.note.tags)}"
+    # Bound metadata separately so very long tags cannot crowd out note content.
+    metadata = metadata.encode("utf-8")[:500].decode("utf-8", errors="ignore")
+    return metadata + "\n" + section.content

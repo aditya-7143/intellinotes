@@ -12,6 +12,15 @@ class SQLAlchemyFolderRepository(FolderRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def get_paths(self, user_id: UUID) -> list[str]:
+        return list(
+            (
+                await self.session.scalars(
+                    select(Folder.path).where(Folder.user_id == user_id).order_by(Folder.path)
+                )
+            ).all()
+        )
+
     async def create(self, folder: Folder) -> Folder:
         self.session.add(folder)
         await self.session.flush()

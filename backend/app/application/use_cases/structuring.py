@@ -18,6 +18,7 @@ from app.application.proposals import (
     apply_edits,
     parse_proposal,
 )
+from app.application.retrieval import SectionRetriever
 from app.application.structuring_graph import StructuringWorkflow
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging import log_operation
@@ -31,8 +32,8 @@ logger = logging.getLogger("intellinotes.structuring")
 class CreateStructuringProposalUseCase:
     proposal_repo: ProposalRepository
     llm_provider: LLMProvider
-    note_repo: NoteRepository
     folder_repo: FolderRepository
+    retriever: SectionRetriever
 
     @log_operation("proposal.create")
     async def execute(
@@ -42,7 +43,7 @@ class CreateStructuringProposalUseCase:
             raise ValidationError("Snippet cannot be empty")
 
         proposed_structure = await StructuringWorkflow(
-            self.note_repo, self.folder_repo, self.llm_provider
+            self.folder_repo, self.llm_provider, self.retriever
         ).execute(user_id, snippet, context)
         proposed_structure["_request_context"] = context
         parse_proposal(proposed_structure)
@@ -255,8 +256,8 @@ class RejectProposalUseCase:
 class FeedbackProposalUseCase:
     proposal_repo: ProposalRepository
     llm_provider: LLMProvider
-    note_repo: NoteRepository
     folder_repo: FolderRepository
+    retriever: SectionRetriever
 
     @log_operation("proposal.feedback")
     async def execute(self, proposal_id: UUID, user_id: UUID, feedback: str) -> StructuringProposal:
@@ -272,7 +273,7 @@ class FeedbackProposalUseCase:
         context = proposal.proposed_structure.get("_request_context")
         previous = parse_proposal(proposal.proposed_structure).model_dump(mode="json")
         refined = await StructuringWorkflow(
-            self.note_repo, self.folder_repo, self.llm_provider
+            self.folder_repo, self.llm_provider, self.retriever
         ).execute(user_id, proposal.input_snippet, context, previous, feedback)
         refined["_request_context"] = context
         parse_proposal(refined)

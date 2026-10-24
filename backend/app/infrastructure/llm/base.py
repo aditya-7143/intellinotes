@@ -7,10 +7,6 @@ class BaseLLMProvider(ABC):
     async def structure_notes(self, snippet: str, context: Optional[str] = None) -> dict:
         pass
 
-    @abstractmethod
-    async def refine_structure(self, current_structure: dict, feedback: str) -> dict:
-        pass
-
 
 STRUCTURE_SYSTEM_PROMPT = """Organize the supplied snippet into the user's note library.
 Return only a JSON object using schema_version 2:
@@ -44,13 +40,3 @@ Rules:
 - Include a short placement reason for every operation. Return at least one operation.
 - Never output _review, _acceptance or other private metadata.
 """
-
-
-REFINE_SYSTEM_PROMPT = """You are refining a previously generated note structure based on user feedback.
-
-Current structure:
-{current_structure}
-
-User feedback: {feedback}
-
-Return the refined structure in the same JSON format. Apply the feedback while maintaining logical organization."""

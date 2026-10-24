@@ -1,11 +1,12 @@
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import String, cast, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports import NoteRepository
-from app.domain.models import Note
+from app.domain.models import Note, NoteIndexJob, NoteSection
+from app.infrastructure.rag.index import enqueue_note
 
 
 class SQLAlchemyNoteRepository(NoteRepository):
@@ -16,6 +17,7 @@ class SQLAlchemyNoteRepository(NoteRepository):
         self.session.add(note)
         await self.session.flush()
         await self.session.refresh(note)
+        await enqueue_note(self.session, note)
         return note
 
     async def get_by_id(self, note_id: UUID, for_update: bool = False) -> Optional[Note]:
@@ -40,11 +42,14 @@ class SQLAlchemyNoteRepository(NoteRepository):
     async def update(self, note: Note) -> Note:
         await self.session.flush()
         await self.session.refresh(note)
+        await enqueue_note(self.session, note)
         return note
 
     async def delete(self, note_id: UUID) -> bool:
         note = await self.get_by_id(note_id)
         if note:
+            await self.session.execute(delete(NoteSection).where(NoteSection.note_id == note_id))
+            await self.session.execute(delete(NoteIndexJob).where(NoteIndexJob.note_id == note_id))
             await self.session.delete(note)
             return True
         return False

@@ -7,9 +7,9 @@ from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
 
-from app.application.ports import FolderRepository, LLMProvider, NoteRepository
+from app.application.ports import FolderRepository, LLMProvider
 from app.application.proposals import UpdateNoteOperation, apply_edits, parse_proposal
-from app.application.retrieval import Section, retrieve_sections
+from app.application.retrieval import Section, SectionRetriever
 from app.core.exceptions import ConflictError, ValidationError
 
 
@@ -26,8 +26,14 @@ class StructuringState(TypedDict, total=False):
 
 
 class StructuringWorkflow:
-    def __init__(self, notes: NoteRepository, folders: FolderRepository, llm: LLMProvider):
-        self.notes, self.folders, self.llm = notes, folders, llm
+    def __init__(
+        self,
+        folders: FolderRepository,
+        llm: LLMProvider,
+        retriever: SectionRetriever,
+    ):
+        self.folders, self.llm = folders, llm
+        self.retriever = retriever
         graph = StateGraph(StructuringState)
         graph.add_node("retrieve", self.retrieve)
         graph.add_node("draft", self.draft)
@@ -41,21 +47,20 @@ class StructuringWorkflow:
     async def retrieve(self, state: StructuringState) -> dict:
         user_id = state["user_id"]
         # Filter again at this boundary so even an adapter error cannot leak another library.
-        notes = [note for note in await self.notes.get_by_user(user_id) if note.user_id == user_id]
-        folders = [
-            folder
-            for folder in await self.folders.get_by_user(user_id)
-            if folder.user_id == user_id
-        ]
+        folder_paths = await self.folders.get_paths(user_id)
         query = "\n".join(
             filter(None, [state["snippet"], state.get("context"), state.get("feedback")])
         )
-        sections = retrieve_sections(notes, query)
+        sections = [
+            section
+            for section in await self.retriever.retrieve(user_id, query)
+            if section.note.user_id == user_id
+        ]
         context = {
             "instructions": state.get("context"),
             "feedback": state.get("feedback"),
             "previous_proposal": state.get("previous"),
-            "existing_folder_paths": [folder.path for folder in folders][:200],
+            "existing_folder_paths": folder_paths[:200],
             "retrieved_sections": [
                 {
                     "note_id": str(section.note.id),

@@ -74,3 +74,10 @@ def get_llm() -> BaseLLMProvider:
 
 def get_storage_repo() -> BaseStorage:
     return get_storage()
+
+
+def get_section_retriever(db: Annotated[AsyncSession, Depends(get_db)]):
+    from app.infrastructure.embeddings.ollama import OllamaEmbeddingProvider
+    from app.infrastructure.rag.retriever import SemanticSectionRetriever
+
+    return SemanticSectionRetriever(db, OllamaEmbeddingProvider())

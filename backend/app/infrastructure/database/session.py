@@ -1,6 +1,7 @@
 import logging
-
 from collections.abc import AsyncGenerator
+
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -35,7 +36,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     import app.domain.models  # noqa: F401
+
     async with engine.begin() as conn:
+        # API and indexing workers may start simultaneously on the same database.
+        await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('intellinotes-schema-init'))"))
+        # PostgreSQL must have the pgvector extension installed on the server.
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
 

@@ -132,14 +132,6 @@ class StructuringProposalBase(BaseModel):
     proposed_structure: dict
 
 
-class StructuringProposalCreate(StructuringProposalBase):
-    pass
-
-
-class StructuringProposalUpdate(BaseModel):
-    feedback: Optional[str] = None
-
-
 class StructuringProposalResponse(StructuringProposalBase):
     id: UUID
     user_id: UUID
@@ -155,11 +147,6 @@ class StructuringProposalResponse(StructuringProposalBase):
 class StructureRequest(BaseModel):
     snippet: str = Field(min_length=1)
     context: Optional[str] = None
-
-
-class StructureProposal(BaseModel):
-    folders: list[dict]
-    notes: list[dict]
 
 
 class ProposalAction(BaseModel):

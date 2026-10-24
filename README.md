@@ -8,13 +8,13 @@ can propose inserting content into an existing Markdown section, explain placeme
 or create a new note. The review screen shows complete new notes and a diff plus
 before/after content for updates. Nothing is saved to the library until acceptance.
 
-The first retrieval implementation uses BM25-style keyword ranking over the current
-user's notes, split at Markdown headings (excluding headings inside fenced code).
-It supplies up to five sections and existing folder paths to the configured LLM.
-It reads current database content on every request, so edits/deletes need no index
-refresh. No embedding API, vector database, migration, or new environment variables
-are required. This is lexical retrieval; semantic embeddings/pgvector and a persistent
-index are future work. Scanning a library per request is intended for small libraries.
+Retrieval uses semantic embeddings through LangChain's `OllamaEmbeddings`,
+LangChain's `RecursiveCharacterTextSplitter`, and persisted pgvector search.
+Relevant chunks from the current user's notes supply context to the configured LLM;
+note changes queue reindexing. PostgreSQL needs the vector extension, Ollama needs
+the `nomic-embed-text` model, and an indexing worker must process existing and changed
+notes. See [semantic retrieval setup](backend/RAG.md), including reindexing after
+the chunker upgrade. The earlier BM25 keyword ranker has been replaced.
 
 Feedback reruns retrieval and validation with the original snippet and instructions.
 The original snippet is retained. Refinement prompts preserve meaning and code
@@ -214,3 +214,12 @@ npm run lint
 ## License
 
 MIT
+
+## Semantic RAG retrieval
+
+The organization graph now retrieves indexed note chunks using local Ollama
+embeddings and PostgreSQL pgvector instead of request-time keyword ranking.
+Feedback reruns semantic retrieval before proposing new edits. See
+[backend/RAG.md](backend/RAG.md) for pgvector setup, model download, the indexing
+worker, existing-note backfill, status/reindex endpoints, and consistency limits.
+The frontend and API run as before; the indexing worker runs separately.

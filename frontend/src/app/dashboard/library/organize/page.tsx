@@ -1,16 +1,23 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { isAxiosError } from 'axios';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { structuringApi } from '@/lib/api';
 import { StructuringProposal, ProposedStructure, CreateNoteOperation } from '@/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Sparkles, FileText, FolderGit2, ArrowRight, CheckCircle, XCircle, MessageSquare, Loader2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Sparkles, CheckCircle, XCircle, MessageSquare, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { clsx } from 'clsx';
+
+function proposalError(error: unknown, fallback: string): string {
+  if (isAxiosError(error) && error.response?.status === 409 && typeof error.response.data?.detail === 'string') {
+    return error.response.data.detail;
+  }
+  return fallback;
+}
 
 function StructureTree({ structure }: { structure: ProposedStructure }) {
   const creates: CreateNoteOperation[] = structure.operations
@@ -205,7 +212,6 @@ export default function OrganizePage() {
   const [snippet, setSnippet] = useState('');
   const [context, setContext] = useState('');
   const [proposals, setProposals] = useState<StructuringProposal[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [activeTab, setActiveTab] = useState<'create' | 'history'>('create');
 
@@ -233,7 +239,7 @@ export default function OrganizePage() {
       setProposals([res.data, ...proposals]);
       setActiveTab('history');
     } catch (error) {
-      setError('Unable to generate a structure. Please try again.');
+      setError(proposalError(error, 'Unable to generate a structure. Please try again.'));
     } finally {
       setCreating(false);
     }
@@ -245,7 +251,7 @@ export default function OrganizePage() {
       const saved = result.data.notes.map(note => note.id).join(',');
       router.push(`/dashboard/library${saved ? `?saved=${encodeURIComponent(saved)}` : ''}`);
     } catch (error) {
-      setError('Unable to accept the proposal. Please try again.');
+      setError(proposalError(error, 'Unable to accept the proposal. Please try again.'));
     }
   };
 
@@ -263,7 +269,7 @@ export default function OrganizePage() {
       const res = await structuringApi.feedback(id, feedback);
       setProposals(proposals.map(p => p.id === id ? res.data : p));
     } catch (error) {
-      setError('Unable to submit your feedback. Please try again.');
+      setError(proposalError(error, 'Unable to submit your feedback. Please try again.'));
     }
   };
 
@@ -274,7 +280,7 @@ export default function OrganizePage() {
       const res = await structuringApi.create({ snippet: proposal.input_snippet, context: proposal.proposed_structure._request_context || undefined });
       setProposals([res.data, ...proposals.filter(p => p.id !== id)]);
     } catch (error) {
-      setError('Unable to regenerate the proposal. Please try again.');
+      setError(proposalError(error, 'Unable to regenerate the proposal. Please try again.'));
     }
   };
 

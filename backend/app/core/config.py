@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +32,13 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str | None = None
     OPENROUTER_MODEL: str = "openrouter/auto"
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+
+    # Embeddings are local and independent of the chat LLM provider.
+    EMBEDDING_BASE_URL: str = "http://localhost:11434"
+    EMBEDDING_MODEL: str = "nomic-embed-text"
+    RAG_TOP_K: int = Field(default=5, ge=1, le=20)
+    RAG_MIN_SIMILARITY: float = Field(default=0.3, ge=0, le=1)
+    RAG_INDEX_MAX_ATTEMPTS: int = Field(default=8, ge=1, le=100)
 
     STORAGE_TYPE: Literal["local", "s3"] = "local"
     LOCAL_STORAGE_PATH: str = "./data/notes"

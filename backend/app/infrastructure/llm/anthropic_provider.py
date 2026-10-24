@@ -7,7 +7,6 @@ from app.core.config import get_settings
 from app.core.exceptions import LLMProviderError
 from app.core.logging import log_operation
 from app.infrastructure.llm.base import (
-    REFINE_SYSTEM_PROMPT,
     STRUCTURE_SYSTEM_PROMPT,
     BaseLLMProvider,
 )
@@ -33,28 +32,6 @@ class AnthropicProvider(BaseLLMProvider):
                 temperature=0.3,
                 system=STRUCTURE_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
-            )
-            content = response.content[0].text if response.content else "{}"
-            return json.loads(content)
-        except Exception as e:
-            raise LLMProviderError(f"Anthropic error: {str(e)}")
-
-    @log_operation("llm.refine_structure")
-    async def refine_structure(self, current_structure: dict, feedback: str) -> dict:
-        try:
-            response = await self.client.messages.create(
-                model=self.model,
-                max_tokens=4000,
-                temperature=0.3,
-                system=REFINE_SYSTEM_PROMPT.format(
-                    current_structure=json.dumps(current_structure, indent=2), feedback=feedback
-                ),
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "Please refine the structure based on the feedback.",
-                    }
-                ],
             )
             content = response.content[0].text if response.content else "{}"
             return json.loads(content)

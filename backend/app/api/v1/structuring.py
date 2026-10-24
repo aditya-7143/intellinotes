@@ -8,6 +8,7 @@ from app.api.v1.deps import (
     get_llm,
     get_note_repo,
     get_proposal_repo,
+    get_section_retriever,
     get_storage_repo,
 )
 from app.application.dtos import (
@@ -36,10 +37,10 @@ async def create_structuring_proposal(
     user_id=Depends(get_current_user_id),
     proposal_repo=Depends(get_proposal_repo),
     llm=Depends(get_llm),
-    note_repo=Depends(get_note_repo),
     folder_repo=Depends(get_folder_repo),
+    retriever=Depends(get_section_retriever),
 ):
-    use_case = CreateStructuringProposalUseCase(proposal_repo, llm, note_repo, folder_repo)
+    use_case = CreateStructuringProposalUseCase(proposal_repo, llm, folder_repo, retriever)
     proposal = await use_case.execute(user_id, request.snippet, request.context)
     return proposal
 
@@ -110,13 +111,13 @@ async def feedback_proposal(
     user_id=Depends(get_current_user_id),
     proposal_repo=Depends(get_proposal_repo),
     llm=Depends(get_llm),
-    note_repo=Depends(get_note_repo),
     folder_repo=Depends(get_folder_repo),
+    retriever=Depends(get_section_retriever),
 ):
     if action.action != "feedback":
         from fastapi import HTTPException, status
 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action")
-    use_case = FeedbackProposalUseCase(proposal_repo, llm, note_repo, folder_repo)
+    use_case = FeedbackProposalUseCase(proposal_repo, llm, folder_repo, retriever)
     proposal = await use_case.execute(proposal_id, user_id, action.feedback or "")
     return proposal

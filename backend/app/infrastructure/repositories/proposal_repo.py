@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import noload
 
 from app.application.ports import ProposalRepository
 from app.domain.models import ProposalStatus, StructuringProposal
@@ -21,7 +22,11 @@ class SQLAlchemyProposalRepository(ProposalRepository):
     async def get_by_id(
         self, proposal_id: UUID, for_update: bool = False
     ) -> Optional[StructuringProposal]:
-        query = select(StructuringProposal).where(StructuringProposal.id == proposal_id)
+        query = (
+            select(StructuringProposal)
+            .options(noload("*"))
+            .where(StructuringProposal.id == proposal_id)
+        )
         if for_update:
             query = query.with_for_update().execution_options(populate_existing=True)
         result = await self.session.execute(query)
@@ -30,7 +35,11 @@ class SQLAlchemyProposalRepository(ProposalRepository):
     async def get_by_user(
         self, user_id: UUID, status: Optional[ProposalStatus] = None
     ) -> list[StructuringProposal]:
-        query = select(StructuringProposal).where(StructuringProposal.user_id == user_id)
+        query = (
+            select(StructuringProposal)
+            .options(noload("*"))
+            .where(StructuringProposal.user_id == user_id)
+        )
         if status:
             query = query.where(StructuringProposal.status == status)
         query = query.order_by(StructuringProposal.created_at.desc())

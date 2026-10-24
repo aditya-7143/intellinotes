@@ -1,5 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { TokenPair, User, Folder, Note, StructuringProposal, StructureRequest, ProposalAction, ProposedStructure } from '@/types';
+import { TokenPair, User, Folder, Note, StructuringProposal, StructureRequest } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
