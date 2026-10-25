@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "IntelliNotes"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] | None = None
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/intellinotes"
     DATABASE_ECHO: bool = False

@@ -1,3 +1,4 @@
+import logging
 import math
 from uuid import UUID
 
@@ -13,6 +14,8 @@ from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ValidationError
 from app.core.logging import log_operation
 from app.domain.models import Note, NoteIndexJob, NoteSection
+
+logger = logging.getLogger("intellinotes.rag.retriever")
 
 
 class SemanticSectionRetriever:
@@ -41,10 +44,12 @@ class SemanticSectionRetriever:
             .limit(1)
         )
         if incomplete:
+            logger.debug("retrieval blocked user_id=%s reason=incomplete_index", user_id)
             raise ConflictError(
                 "Your library's search index is not ready. Finish indexing or reindex your notes before trying again."
             )
         if not await self.session.scalar(select(Note.id).where(Note.user_id == user_id).limit(1)):
+            logger.debug("retrieval skipped user_id=%s reason=empty_library", user_id)
             return []
         query_parts = split_text(query)
         if not query_parts or len(query_parts) > 256:
@@ -65,6 +70,14 @@ class SemanticSectionRetriever:
             raise ValidationError("Unable to form a semantic search query")
         vector = validate_vectors([pooled], 1, self.embeddings.dimensions)[0]
         settings = get_settings()
+        logger.debug(
+            "vector search user_id=%s model=%s query_parts=%d top_k=%d min_similarity=%s",
+            user_id,
+            self.embeddings.model_key,
+            len(query_parts),
+            settings.RAG_TOP_K,
+            settings.RAG_MIN_SIMILARITY,
+        )
         distance = NoteSection.embedding.cosine_distance(vector)
         result = await self.session.execute(
             select(NoteSection, Note)

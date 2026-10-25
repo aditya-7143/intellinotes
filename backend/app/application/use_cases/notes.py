@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.application.ports import FolderRepository, NoteRepository, StorageRepository
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
+from app.core.logging import log_operation
 from app.core.paths import validate_folder_path, validate_note_title
 from app.domain.models import Note
 
@@ -14,6 +15,7 @@ class CreateNoteUseCase:
     folder_repo: FolderRepository
     storage_repo: StorageRepository
 
+    @log_operation("application.use_cases.notes.CreateNoteUseCase.execute")
     async def execute(
         self,
         user_id: UUID,
@@ -60,6 +62,7 @@ class CreateNoteUseCase:
 class GetNoteUseCase:
     note_repo: NoteRepository
 
+    @log_operation("application.use_cases.notes.GetNoteUseCase.execute")
     async def execute(self, note_id: UUID, user_id: UUID) -> Note:
         note = await self.note_repo.get_by_id(note_id)
         if not note or note.user_id != user_id:
@@ -71,6 +74,7 @@ class GetNoteUseCase:
 class ListNotesUseCase:
     note_repo: NoteRepository
 
+    @log_operation("application.use_cases.notes.ListNotesUseCase.execute")
     async def execute(self, user_id: UUID, folder_path: Optional[str] = None) -> list[Note]:
         if folder_path is not None:
             validate_folder_path(folder_path)
@@ -83,6 +87,7 @@ class UpdateNoteUseCase:
     folder_repo: FolderRepository
     storage_repo: StorageRepository
 
+    @log_operation("application.use_cases.notes.UpdateNoteUseCase.execute")
     async def execute(
         self,
         note_id: UUID,
@@ -142,6 +147,7 @@ class DeleteNoteUseCase:
     note_repo: NoteRepository
     storage_repo: StorageRepository
 
+    @log_operation("application.use_cases.notes.DeleteNoteUseCase.execute")
     async def execute(self, note_id: UUID, user_id: UUID) -> bool:
         note = await self.note_repo.get_by_id(note_id, for_update=True)
         if not note or note.user_id != user_id:
@@ -157,5 +163,6 @@ class DeleteNoteUseCase:
 class SearchNotesUseCase:
     note_repo: NoteRepository
 
+    @log_operation("application.use_cases.notes.SearchNotesUseCase.execute")
     async def execute(self, user_id: UUID, query: str) -> list[Note]:
         return await self.note_repo.search(user_id, query)

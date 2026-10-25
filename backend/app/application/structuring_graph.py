@@ -11,6 +11,7 @@ from app.application.ports import FolderRepository, LLMProvider
 from app.application.proposals import UpdateNoteOperation, apply_edits, parse_proposal
 from app.application.retrieval import Section, SectionRetriever
 from app.core.exceptions import ConflictError, ValidationError
+from app.core.logging import log_operation
 
 
 class StructuringState(TypedDict, total=False):
@@ -44,6 +45,7 @@ class StructuringWorkflow:
         graph.add_edge("validate", END)
         self.graph = graph.compile()
 
+    @log_operation("application.structuring_graph.StructuringWorkflow.retrieve")
     async def retrieve(self, state: StructuringState) -> dict:
         user_id = state["user_id"]
         # Filter again at this boundary so even an adapter error cannot leak another library.
@@ -75,9 +77,11 @@ class StructuringWorkflow:
         }
         return {"sections": sections, "library_context": json.dumps(context)}
 
+    @log_operation("application.structuring_graph.StructuringWorkflow.draft")
     async def draft(self, state: StructuringState) -> dict:
         return {"draft": await self.llm.structure_notes(state["snippet"], state["library_context"])}
 
+    @log_operation("application.structuring_graph.StructuringWorkflow.validate")
     def validate(self, state: StructuringState) -> dict:
         proposal = parse_proposal(state["draft"])
         sources = {section.note.id: section.note for section in state["sections"]}
@@ -110,6 +114,7 @@ class StructuringWorkflow:
             )
         return {"result": {**proposal.model_dump(mode="json"), "_review": {"updates": previews}}}
 
+    @log_operation("application.structuring_graph.StructuringWorkflow.execute")
     async def execute(
         self,
         user_id: UUID,

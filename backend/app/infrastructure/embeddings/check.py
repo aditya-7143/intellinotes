@@ -3,10 +3,12 @@
 import asyncio
 
 from app.core.exceptions import LLMProviderError
+from app.core.logging import configure_logging
 from app.infrastructure.embeddings.factory import get_embedding_provider
 
 
 async def main():
+    configure_logging()
     try:
         provider = get_embedding_provider()
         documents = await provider.embed(

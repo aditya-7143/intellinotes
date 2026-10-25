@@ -7,12 +7,14 @@ from sqlalchemy.orm import noload
 
 from app.application.note_content import load_note_content
 from app.core.exceptions import ConflictError, ValidationError
+from app.core.logging import log_operation
 from app.domain.models import Note, NoteIndexJob, NoteSection
 from app.infrastructure.rag.index import enqueue_note
 
 logger = logging.getLogger("intellinotes.rag.reconcile")
 
 
+@log_operation("infrastructure.rag.reconcile.reconcile_files")
 async def reconcile_files(sessions, storage, model_key: str) -> int:
     queued = 0
     async with sessions() as session:

@@ -203,6 +203,27 @@ npm run dev
 
 ## Development
 
+### Debug logging
+
+Set `LOG_LEVEL=DEBUG` in `backend/.env` and restart the API and indexing worker.
+Application logs are JSON with timestamps, levels, request IDs, operation timings,
+safe counts, and error types. HTTP responses include `X-Request-ID` for correlation.
+API request bodies, query strings, credentials, note text, and filenames are not
+included in application events. Keep `DATABASE_ECHO=false`; SQL/provider wire
+logging is separate and can expose payloads.
+
+From `backend`, enable logs for a single embedding smoke test:
+
+```bash
+LOG_LEVEL=DEBUG .venv/bin/python -m app.infrastructure.embeddings.check
+```
+
+The same setting works for `uvicorn app.main:app --reload` and
+`python -m app.infrastructure.rag.worker`. Debug instrumentation covers auth,
+notes/folders/proposals, LangGraph nodes, repositories, storage, acceptance,
+retrieval, embedding responses, and indexing/reconciliation. Default level is INFO
+(or DEBUG when `DEBUG=true` and no explicit `LOG_LEVEL` is set).
+
 ### Running Tests
 
 ```bash

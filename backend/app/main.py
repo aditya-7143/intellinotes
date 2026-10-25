@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import auth, folders, indexing, notes, structuring
 from app.core.config import get_settings
-from app.core.logging import configure_logging, log_operation
+from app.core.logging import RequestLoggingMiddleware, configure_logging, log_operation
 from app.infrastructure.database.session import close_db, init_db
 
 settings = get_settings()
@@ -12,6 +12,7 @@ settings = get_settings()
 def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
+    app.add_middleware(RequestLoggingMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

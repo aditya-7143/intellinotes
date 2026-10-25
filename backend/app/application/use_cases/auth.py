@@ -3,6 +3,7 @@ from uuid import UUID
 
 from app.application.ports import UserRepository
 from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError
+from app.core.logging import log_operation
 from app.core.security import create_token_pair, get_password_hash, verify_password
 from app.domain.models import User
 
@@ -11,6 +12,7 @@ from app.domain.models import User
 class RegisterUserUseCase:
     user_repo: UserRepository
 
+    @log_operation("application.use_cases.auth.RegisterUserUseCase.execute")
     async def execute(self, email: str, password: str, full_name: str) -> tuple[UUID, str, str]:
         existing = await self.user_repo.get_by_email(email)
         if existing:
@@ -32,6 +34,7 @@ class RegisterUserUseCase:
 class LoginUserUseCase:
     user_repo: UserRepository
 
+    @log_operation("application.use_cases.auth.LoginUserUseCase.execute")
     async def execute(self, email: str, password: str) -> tuple[UUID, str, str]:
         user = await self.user_repo.get_by_email(email)
         if not user or not verify_password(password, user.hashed_password):
@@ -45,6 +48,7 @@ class LoginUserUseCase:
 class RefreshTokenUseCase:
     user_repo: UserRepository
 
+    @log_operation("application.use_cases.auth.RefreshTokenUseCase.execute")
     async def execute(self, user_id: UUID) -> tuple[str, str]:
         user = await self.user_repo.get_by_id(user_id)
         if not user:
@@ -58,6 +62,7 @@ class RefreshTokenUseCase:
 class GetUserUseCase:
     user_repo: UserRepository
 
+    @log_operation("application.use_cases.auth.GetUserUseCase.execute")
     async def execute(self, user_id: UUID) -> User:
         user = await self.user_repo.get_by_id(user_id)
         if not user:
@@ -69,6 +74,7 @@ class GetUserUseCase:
 class UpdateUserUseCase:
     user_repo: UserRepository
 
+    @log_operation("application.use_cases.auth.UpdateUserUseCase.execute")
     async def execute(
         self, user_id: UUID, full_name: str | None = None, settings: dict | None = None
     ) -> User:

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
 from app.application.ports import ProposalRepository
+from app.core.logging import log_operation
 from app.domain.models import ProposalStatus, StructuringProposal
 
 
@@ -13,12 +14,16 @@ class SQLAlchemyProposalRepository(ProposalRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    @log_operation("infrastructure.repositories.proposal_repo.SQLAlchemyProposalRepository.create")
     async def create(self, proposal: StructuringProposal) -> StructuringProposal:
         self.session.add(proposal)
         await self.session.flush()
         await self.session.refresh(proposal)
         return proposal
 
+    @log_operation(
+        "infrastructure.repositories.proposal_repo.SQLAlchemyProposalRepository.get_by_id"
+    )
     async def get_by_id(
         self, proposal_id: UUID, for_update: bool = False
     ) -> Optional[StructuringProposal]:
@@ -32,6 +37,9 @@ class SQLAlchemyProposalRepository(ProposalRepository):
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
+    @log_operation(
+        "infrastructure.repositories.proposal_repo.SQLAlchemyProposalRepository.get_by_user"
+    )
     async def get_by_user(
         self, user_id: UUID, status: Optional[ProposalStatus] = None
     ) -> list[StructuringProposal]:
@@ -46,11 +54,13 @@ class SQLAlchemyProposalRepository(ProposalRepository):
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    @log_operation("infrastructure.repositories.proposal_repo.SQLAlchemyProposalRepository.update")
     async def update(self, proposal: StructuringProposal) -> StructuringProposal:
         await self.session.flush()
         await self.session.refresh(proposal)
         return proposal
 
+    @log_operation("infrastructure.repositories.proposal_repo.SQLAlchemyProposalRepository.delete")
     async def delete(self, proposal_id: UUID) -> bool:
         proposal = await self.get_by_id(proposal_id)
         if proposal:

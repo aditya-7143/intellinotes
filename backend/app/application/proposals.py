@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic import ValidationError as SchemaError
 
 from app.core.exceptions import ConflictError, ValidationError
+from app.core.logging import log_operation
 from app.core.paths import validate_folder_path, validate_note_title
 
 
@@ -74,6 +75,7 @@ class EditProposal(BaseModel):
     ] = Field(min_length=1)
 
 
+@log_operation("application.proposals.EditProposal.parse_proposal")
 def parse_proposal(structure: dict) -> EditProposal:
     if not isinstance(structure, dict):
         raise ValidationError("Proposal must be a JSON object")
@@ -116,6 +118,7 @@ def parse_proposal(structure: dict) -> EditProposal:
     return proposal
 
 
+@log_operation("application.proposals.EditProposal.apply_edits")
 def apply_edits(content: str, edits: list[ProposedEdit]) -> str:
     """Each anchor is resolved against the original document, never a shifted line number."""
     spans = []

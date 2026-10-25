@@ -14,6 +14,7 @@ from app.application.embeddings import validate_vectors
 from app.application.note_content import load_note_content
 from app.application.retrieval import chunk_sections, embedding_text
 from app.core.config import get_settings
+from app.core.logging import configure_logging, log_operation
 from app.domain.models import Note, NoteIndexJob, NoteSection
 from app.infrastructure.database.session import async_session_maker, close_db, init_db
 from app.infrastructure.embeddings.factory import get_embedding_provider
@@ -30,6 +31,7 @@ class IndexWorker:
         self.embeddings = embeddings or get_embedding_provider()
         self.storage = storage if storage is not None else get_storage()
 
+    @log_operation("infrastructure.rag.worker.IndexWorker.run_once")
     async def run_once(self) -> bool:
         now = datetime.now(timezone.utc)
         async with self.sessions() as session:
@@ -51,6 +53,12 @@ class IndexWorker:
                 # must not publish or reschedule this claim after it has expired.
                 job.generation = uuid4()
                 note_id, generation = job.note_id, job.generation
+                logger.debug(
+                    "index job claimed note_id=%s generation=%s attempts=%s",
+                    note_id,
+                    generation,
+                    job.attempts,
+                )
                 job.lease_until = now + timedelta(minutes=5)
         try:
             async with self.sessions() as session:
@@ -62,6 +70,12 @@ class IndexWorker:
                 await load_note_content(note, self.storage)
                 version = note.version
                 sections = chunk_sections(note)
+                logger.debug(
+                    "index file loaded note_id=%s characters=%d chunks=%d",
+                    note_id,
+                    len(note.content),
+                    len(sections),
+                )
                 if not sections:
                     # Empty legacy notes still receive an index marker.
                     from app.application.retrieval import Section
@@ -94,9 +108,14 @@ class IndexWorker:
                         .with_for_update()
                     )
                     if current is None or job is None or job.generation != generation:
+                        logger.debug(
+                            "index publication skipped note_id=%s reason=superseded_or_deleted",
+                            note_id,
+                        )
                         return True
                     await load_note_content(current, self.storage)
                     if current.version != version:
+                        logger.debug("index requeued note_id=%s reason=source_changed", note_id)
                         await enqueue_note(session, current)
                         return True
                     await session.execute(delete(NoteSection).where(NoteSection.note_id == note_id))
@@ -142,6 +161,7 @@ class IndexWorker:
         return True
 
 
+@log_operation("infrastructure.rag.worker.IndexWorker.backfill")
 async def backfill() -> int:
     async with async_session_maker() as session:
         async with session.begin():
@@ -162,7 +182,7 @@ async def main():
     )
     parser.add_argument("--once", action="store_true", help="Process one available job and exit")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     await init_db()
     try:
         if args.backfill:

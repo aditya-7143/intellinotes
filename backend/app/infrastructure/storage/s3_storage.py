@@ -83,6 +83,7 @@ class S3Storage(BaseStorage):
                 keys.append(obj["Key"])
         return keys
 
+    @log_operation("infrastructure.storage.s3_storage.S3Storage.list_folders")
     async def list_folders(self, prefix: str) -> list[str]:
         root = self._get_key(prefix.rstrip("/")) + "/"
         folders = set()
@@ -95,12 +96,14 @@ class S3Storage(BaseStorage):
                     folders.add(root + "/".join(parts[:length]))
         return sorted(folders)
 
+    @log_operation("infrastructure.storage.s3_storage.S3Storage.create_folder")
     async def create_folder(self, key: str) -> None:
         # Explicit prefix marker preserves empty folders in object storage.
         if await self.exists(key):
             raise ConflictError("A file already exists at the folder path")
         self.client.put_object(Bucket=self.bucket, Key=self._get_key(key) + "/", Body=b"")
 
+    @log_operation("infrastructure.storage.s3_storage.S3Storage.delete_folder")
     async def delete_folder(self, key: str) -> bool:
         marker = self._get_key(key) + "/"
         keys = await self.list_keys(key)
@@ -109,6 +112,7 @@ class S3Storage(BaseStorage):
         self.client.delete_object(Bucket=self.bucket, Key=marker)
         return True
 
+    @log_operation("infrastructure.storage.s3_storage.S3Storage.move_folder")
     async def move_folder(self, key: str, destination: str) -> None:
         source = self._get_key(key) + "/"
         target = self._get_key(destination) + "/"

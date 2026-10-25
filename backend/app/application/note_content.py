@@ -2,10 +2,12 @@
 
 from app.application.ports import StorageRepository
 from app.core.exceptions import ConflictError, ValidationError
+from app.core.logging import log_operation
 from app.core.paths import validate_relative_path
 from app.domain.models import Note
 
 
+@log_operation("application.note_content.load_note_content")
 async def load_note_content(note: Note, storage: StorageRepository) -> Note:
     key = note.storage_key
     if not key:

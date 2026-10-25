@@ -85,6 +85,7 @@ class LocalStorage(BaseStorage):
                 keys.append(rel_path)
         return keys
 
+    @log_operation("infrastructure.storage.local_storage.LocalStorage.list_folders")
     async def list_folders(self, prefix: str) -> list[str]:
         root = Path(self._get_full_path(prefix))
         if not root.is_dir():
@@ -98,12 +99,14 @@ class LocalStorage(BaseStorage):
                 directories.append(prefix.rstrip("/") + "/" + relative)
         return sorted(directories)
 
+    @log_operation("infrastructure.storage.local_storage.LocalStorage.create_folder")
     async def create_folder(self, key: str) -> None:
         try:
             Path(self._get_full_path(key)).mkdir(parents=True, exist_ok=True)
         except FileExistsError as error:
             raise ConflictError("A file already exists at the folder path") from error
 
+    @log_operation("infrastructure.storage.local_storage.LocalStorage.move_folder")
     async def move_folder(self, key: str, destination: str) -> None:
         source, target = Path(self._get_full_path(key)), Path(self._get_full_path(destination))
         if not source.is_dir():
@@ -115,6 +118,7 @@ class LocalStorage(BaseStorage):
         target.parent.mkdir(parents=True, exist_ok=True)
         source.rename(target)
 
+    @log_operation("infrastructure.storage.local_storage.LocalStorage.delete_folder")
     async def delete_folder(self, key: str) -> bool:
         folder = Path(self._get_full_path(key))
         if not folder.is_dir():

@@ -3,6 +3,7 @@ from uuid import UUID
 
 from app.application.ports import AcceptanceTransaction, FolderRepository, NoteRepository
 from app.core.exceptions import ConflictError, NotFoundError
+from app.core.logging import log_operation
 from app.core.paths import validate_folder_path, validate_note_title
 from app.domain.models import Folder
 
@@ -11,6 +12,7 @@ from app.domain.models import Folder
 class CreateFolderUseCase:
     folder_repo: FolderRepository
 
+    @log_operation("application.use_cases.folders.CreateFolderUseCase.execute")
     async def execute(self, user_id: UUID, name: str, parent_path: str = "/") -> Folder:
         validate_note_title(name)
         validate_folder_path(parent_path)
@@ -26,6 +28,7 @@ class CreateFolderUseCase:
 class GetFolderUseCase:
     folder_repo: FolderRepository
 
+    @log_operation("application.use_cases.folders.GetFolderUseCase.execute")
     async def execute(self, path: str, user_id: UUID) -> Folder:
         folder = await self.folder_repo.get_by_path(user_id, path)
         if not folder:
@@ -37,6 +40,7 @@ class GetFolderUseCase:
 class ListFoldersUseCase:
     folder_repo: FolderRepository
 
+    @log_operation("application.use_cases.folders.ListFoldersUseCase.execute")
     async def execute(self, user_id: UUID) -> list[Folder]:
         return await self.folder_repo.get_by_user(user_id)
 
@@ -47,6 +51,7 @@ class UpdateFolderUseCase:
     note_repo: NoteRepository
     transaction: AcceptanceTransaction
 
+    @log_operation("application.use_cases.folders.UpdateFolderUseCase.execute")
     async def execute(
         self, path: str, user_id: UUID, name: str | None = None, parent_path: str | None = None
     ) -> Folder:
@@ -98,6 +103,7 @@ class UpdateFolderUseCase:
 class DeleteFolderUseCase:
     folder_repo: FolderRepository
 
+    @log_operation("application.use_cases.folders.DeleteFolderUseCase.execute")
     async def execute(self, path: str, user_id: UUID) -> bool:
         await GetFolderUseCase(self.folder_repo).execute(path, user_id)
         # Storage refuses any directory containing files or subdirectories.

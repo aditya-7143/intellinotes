@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports import StorageRepository
 from app.core.exceptions import ConflictError, StorageError
+from app.core.logging import log_operation
 from app.domain.models import User
 
 logger = logging.getLogger("intellinotes.acceptance")
@@ -19,10 +20,12 @@ class SQLAlchemyAcceptanceTransaction:
         self.storage = storage
         self.before_images: dict[str, bytes | None] = {}
 
+    @log_operation("infrastructure.database.acceptance.SQLAlchemyAcceptanceTransaction.lock_user")
     async def lock_user(self, user_id: UUID) -> None:
         # Serialize acceptance for one library, including newly-created destinations.
         await self.session.execute(select(User.id).where(User.id == user_id).with_for_update())
 
+    @log_operation("infrastructure.database.acceptance.SQLAlchemyAcceptanceTransaction.save")
     async def save(self, key: str, content: bytes, expected: bytes | None) -> None:
         original = await self.storage.get(key)
         if original != expected:
@@ -32,10 +35,12 @@ class SQLAlchemyAcceptanceTransaction:
         self.before_images[key] = original
         await self.storage.save(key, content)
 
+    @log_operation("infrastructure.database.acceptance.SQLAlchemyAcceptanceTransaction.commit")
     async def commit(self) -> None:
         await self.session.commit()
         self.before_images.clear()
 
+    @log_operation("infrastructure.database.acceptance.SQLAlchemyAcceptanceTransaction.rollback")
     async def rollback(self) -> None:
         # Attempt all compensations even if the database or a storage write fails.
         failures = []

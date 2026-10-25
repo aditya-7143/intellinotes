@@ -1,11 +1,15 @@
 """Hosted embeddings through OpenRouter, behind the application's embedding port."""
 
+import logging
+
 import httpx
 
 from app.application.embeddings import validate_vectors
 from app.core.config import get_settings
 from app.core.exceptions import LLMProviderError
 from app.core.logging import log_operation
+
+logger = logging.getLogger("intellinotes.embeddings.openrouter")
 
 
 class OpenRouterEmbeddingProvider:
@@ -42,6 +46,13 @@ class OpenRouterEmbeddingProvider:
             payload["input_type"] = "query" if query else "passage"
         else:
             payload["dimensions"] = self.dimensions
+        logger.debug(
+            "embedding request model=%s task=%s batch_size=%d expected_dimensions=%d",
+            self.model,
+            "query" if query else "passage",
+            len(texts),
+            self.dimensions,
+        )
         try:
             async with httpx.AsyncClient(timeout=120, transport=self.transport) as client:
                 response = await client.post(
@@ -49,6 +60,7 @@ class OpenRouterEmbeddingProvider:
                     headers={"Authorization": f"Bearer {self.api_key}"},
                     json=payload,
                 )
+                logger.debug("embedding response status=%d", response.status_code)
                 response.raise_for_status()
                 data = response.json()["data"]
             if not isinstance(data, list) or len(data) != len(texts):
@@ -67,7 +79,8 @@ class OpenRouterEmbeddingProvider:
                 f"OpenRouter embeddings returned HTTP {error.response.status_code}. "
                 "Check the API key, credits, and embedding model configuration."
             ) from None
-        except (httpx.HTTPError, ValueError, TypeError, KeyError):
+        except (httpx.HTTPError, ValueError, TypeError, KeyError) as error:
+            logger.debug("embedding transport_or_parse_failure error_type=%s", type(error).__name__)
             raise LLMProviderError(
                 "OpenRouter embedding request failed or returned an invalid response."
             ) from None

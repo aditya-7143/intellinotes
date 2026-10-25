@@ -5,9 +5,11 @@ from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import log_operation
 from app.domain.models import Note, NoteIndexJob, NoteSection
 
 
+@log_operation("infrastructure.rag.index.enqueue_note")
 async def enqueue_note(session: AsyncSession, note: Note) -> None:
     """The job and invalidation commit atomically with the note write."""
     await session.execute(delete(NoteSection).where(NoteSection.note_id == note.id))
