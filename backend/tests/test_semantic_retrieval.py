@@ -39,7 +39,7 @@ def note(user=None, content="# GANs\nMode collapse reduces diversity."):
 
 
 def embedding_provider():
-    provider = SimpleNamespace(model_key="test:768:v1")
+    provider = SimpleNamespace(model_key=f"test:{DIMENSIONS}:v1", dimensions=DIMENSIONS)
     provider.embed = AsyncMock(side_effect=lambda texts, **kwargs: [vector() for _ in texts])
     return provider
 
@@ -71,7 +71,7 @@ class EmbeddingTests(IsolatedAsyncioTestCase):
             self.assertEqual(request.url.path, "/api/embed")
             self.assertEqual(payload["model"], "nomic-embed-text")
             self.assertEqual(payload["input"], ["search_query: varied outputs"])
-            return httpx.Response(200, json={"embeddings": [vector()]})
+            return httpx.Response(200, json={"embeddings": [([1.0] + [0.0] * 767)]})
 
         client = OllamaEmbeddings(
             model="nomic-embed-text",
@@ -80,17 +80,20 @@ class EmbeddingTests(IsolatedAsyncioTestCase):
         )
         with patch("app.infrastructure.embeddings.ollama.OllamaEmbeddings", return_value=client):
             self.assertEqual(
-                await OllamaEmbeddingProvider().embed(["varied outputs"], query=True), [vector()]
+                await OllamaEmbeddingProvider().embed(["varied outputs"], query=True),
+                [([1.0] + [0.0] * 767)],
             )
 
     async def test_langchain_receives_query_and_document_prefixes(self):
         client = MagicMock()
-        client.aembed_documents = AsyncMock(return_value=[vector()])
+        client.aembed_documents = AsyncMock(return_value=[([1.0] + [0.0] * 767)])
         with patch(
             "app.infrastructure.embeddings.ollama.OllamaEmbeddings", return_value=client
         ) as factory:
             provider = OllamaEmbeddingProvider()
-            self.assertEqual(await provider.embed(["low variety"], query=True), [vector()])
+            self.assertEqual(
+                await provider.embed(["low variety"], query=True), [([1.0] + [0.0] * 767)]
+            )
             client.aembed_documents.assert_awaited_with(["search_query: low variety"])
             await provider.embed(["Mode collapse"])
             client.aembed_documents.assert_awaited_with(["search_document: Mode collapse"])

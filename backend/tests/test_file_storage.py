@@ -24,7 +24,7 @@ class SchemaTests(TestCase):
         sql = str(CreateTable(NoteSection.__table__).compile(dialect=postgresql.dialect()))
         self.assertIn("start_offset", sql)
         self.assertIn("end_offset", sql)
-        self.assertIn("VECTOR(768)", sql)
+        self.assertIn("VECTOR(2048)", sql)
 
 
 class FileReadTests(IsolatedAsyncioTestCase):

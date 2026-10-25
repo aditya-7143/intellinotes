@@ -33,9 +33,16 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "openrouter/auto"
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
-    # Embeddings are local and independent of the chat LLM provider.
-    EMBEDDING_BASE_URL: str = "http://localhost:11434"
-    EMBEDDING_MODEL: str = "nomic-embed-text"
+    # Embeddings are independently selected, reusing the OpenRouter account by default.
+    EMBEDDING_PROVIDER: Literal["openrouter", "ollama"] = "openrouter"
+    EMBEDDING_BASE_URL: str | None = None
+    EMBEDDING_MODEL: str | None = None
+    EMBEDDING_DIMENSIONS: int | None = Field(default=None, ge=1, le=16000)
+
+    @property
+    def embedding_dimensions(self) -> int:
+        return self.EMBEDDING_DIMENSIONS or (768 if self.EMBEDDING_PROVIDER == "ollama" else 2048)
+
     RAG_TOP_K: int = Field(default=5, ge=1, le=20)
     RAG_MIN_SIMILARITY: float = Field(default=0.3, ge=0, le=1)
     RAG_INDEX_MAX_ATTEMPTS: int = Field(default=8, ge=1, le=100)

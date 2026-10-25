@@ -62,6 +62,13 @@ async def init_db() -> None:
                 "python -m app.infrastructure.database.migrate_storage_folders first."
             )
         await conn.run_sync(Base.metadata.create_all)
+        from app.infrastructure.database.vector_schema import embedding_column_type
+
+        if await embedding_column_type(conn) != f"vector({settings.embedding_dimensions})":
+            raise RuntimeError(
+                "Embedding dimension mismatch. Stop API/workers and run "
+                "python -m app.infrastructure.database.migrate_embedding_dimensions, then restart."
+            )
 
 
 async def close_db() -> None:

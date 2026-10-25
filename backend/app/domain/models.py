@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import get_settings
 from app.domain.versions import note_version
 from app.infrastructure.database.session import Base
 
@@ -141,7 +142,9 @@ class NoteSection(Base):
     end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     source_version: Mapped[str] = mapped_column(String(64), nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(255), nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(get_settings().embedding_dimensions), nullable=False
+    )
     __table_args__ = (UniqueConstraint("note_id", "ordinal", name="uq_note_sections_ordinal"),)
 
 

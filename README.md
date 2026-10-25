@@ -8,11 +8,14 @@ can propose inserting content into an existing Markdown section, explain placeme
 or create a new note. The review screen shows complete new notes and a diff plus
 before/after content for updates. Nothing is saved to the library until acceptance.
 
-Retrieval uses semantic embeddings through LangChain's `OllamaEmbeddings`,
-LangChain's `RecursiveCharacterTextSplitter`, and persisted pgvector search.
+Retrieval uses OpenRouter embeddings by default, LangChain's
+`RecursiveCharacterTextSplitter`, and persisted pgvector search.
+The default embedding model is `nvidia/nemotron-3-embed-1b:free`, using its native
+2,048-dimensional output and the same OpenRouter API key as the LLM. Existing
+768-dimensional indexes need the dimension migration documented in RAG.md.
 Relevant chunks from the current user's notes supply context to the configured LLM;
-note changes queue reindexing. PostgreSQL needs the vector extension, Ollama needs
-the `nomic-embed-text` model, and an indexing worker must process existing and changed
+note changes queue reindexing. PostgreSQL needs the vector extension, OpenRouter uses
+the existing `OPENROUTER_API_KEY`, and an indexing worker must process existing and changed
 notes. See [semantic retrieval setup](backend/RAG.md), including reindexing after
 the file-reference index upgrade. The earlier BM25 keyword ranker has been replaced.
 
@@ -77,11 +80,9 @@ intellinotes/
 ### Using Docker Compose
 
 ```bash
-# Start all services
+# Copy backend/.env.example to backend/.env if needed and set OPENROUTER_API_KEY.
+# Start the hosted-provider stack (Ollama is optional and not started).
 docker-compose up -d
-
-# Pull Ollama model (in another terminal)
-docker-compose exec ollama ollama pull llama3.1
 
 # View logs
 docker-compose logs -f backend
@@ -91,7 +92,7 @@ Services:
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
-- Ollama: http://localhost:11434
+- Optional Ollama profile: `docker compose --profile local up -d ollama`
 
 ### Local Development
 

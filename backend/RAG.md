@@ -6,7 +6,13 @@ The Library's ordinary text-search endpoint reads current Markdown files.
 
 ## Libraries
 
-- `langchain-ollama`: `OllamaEmbeddings` handles async embedding requests through
+- `httpx`: the OpenRouter adapter calls `/api/v1/embeddings` using the existing
+  `OPENROUTER_API_KEY`. The default model is `nvidia/nemotron-3-embed-1b:free`.
+  Requests omit `dimensions` and use its native 2,048-dimensional vectors.
+  `input_type` is `passage` for note chunks and `query` for searches. Chunk text
+  is sent to the hosted provider. The free NVIDIA endpoint is intended for
+  non-confidential data; see its model page for data-use terms.
+- Optional `langchain-ollama`: `OllamaEmbeddings` handles async embedding requests through
   the maintained Ollama SDK. The application adapter adds Nomic's task prefixes,
   validates vectors, and converts provider errors to the API's error format.
 - `langchain-text-splitters`: `RecursiveCharacterTextSplitter` splits long sections
@@ -17,7 +23,8 @@ The Library's ordinary text-search endpoint reads current Markdown files.
   Queries use the existing application tables to retain ownership/version checks.
 - `langgraph`: orchestrates retrieval, generation, and validation before review.
 
-There is no custom keyword relevance algorithm or embedding HTTP client in this flow.
+Both embedding adapters implement the same application port; retrieval, workers,
+and index status select the configured adapter through a factory.
 After upgrading from a previous index format, restart the backend and worker and run
 `POST /api/v1/index/reindex` for your account (or the worker's `--backfill` command
 for all notes). The new `sections-v3-file-references` index identity prevents mixing old
@@ -46,17 +53,28 @@ Run commands from `backend` with its virtual environment activated.
    database. A PostgreSQL upgrade requires its own data migration; do not point a
    newer server at an existing PostgreSQL 14 data directory.
 
-3. Run Ollama and download the embedding model:
+3. Configure hosted embeddings in `backend/.env`:
 
    ```bash
-   ollama serve
+   EMBEDDING_PROVIDER=openrouter
+   EMBEDDING_MODEL=nvidia/nemotron-3-embed-1b:free
+   # Set a valid OPENROUTER_API_KEY (the same key used for the LLM).
    ```
 
-   In another terminal:
+   Verify using a few synthetic sentences (this makes two hosted API calls):
 
    ```bash
-   ollama pull nomic-embed-text
+   python -m app.infrastructure.embeddings.check
    ```
+
+   HTTP 401 means authentication failed; check the configured key. HTTP 402 can
+   indicate insufficient credits. No real note files are read by this smoke test.
+   `EMBEDDING_BASE_URL` is optional and defaults to `OPENROUTER_BASE_URL` for this
+   adapter. Remove any old localhost override when switching from Ollama.
+
+   For optional local embeddings, set `EMBEDDING_PROVIDER=ollama`, set
+   `EMBEDDING_MODEL=nomic-embed-text`, run Ollama, and pull that model. Its endpoint
+   defaults to `OLLAMA_BASE_URL`. Restart API/worker and reindex after switching.
 
 4. For an existing database with `notes.content`, stop the API and workers, back
    up the database and Markdown directory, then run:
@@ -86,6 +104,18 @@ Run commands from `backend` with its virtual environment activated.
    note files. Database changes roll back on failure. Existing pending update
    proposals should be regenerated after migration because their versions changed.
 
+   If the existing index uses 768 dimensions, run this next with API/workers stopped:
+
+   ```bash
+   python -m app.infrastructure.database.migrate_embedding_dimensions
+   ```
+
+   It clears only derived vector entries, changes the column to `vector(2048)`,
+   and queues every registered note for rebuilding, all in one DB transaction.
+   It does not modify Markdown, note metadata, or proposals. Rerunning against
+   the current dimension is a no-op. Startup detects an incompatible column and
+   asks for this migration instead of failing later during indexing.
+
    Start the backend:
 
    ```bash
@@ -109,13 +139,14 @@ Run commands from `backend` with its virtual environment activated.
    `--once` processes a single available job and exits; `--backfill --once` queues
    all notes but only processes one, so it is not a complete backfill.
 
-For Compose, run `docker compose exec ollama ollama pull nomic-embed-text`.
+Compose loads credentials from `backend/.env` and uses OpenRouter by default.
 The `index-worker` service processes new jobs. To index existing notes once,
 run `docker compose exec index-worker python -m app.infrastructure.rag.worker --backfill --once`;
 the regular worker then drains the remaining jobs.
 
 Your chat model remains independently configured through `LLM_PROVIDER`.
-No embedding API key or paid embedding service is required with local Ollama.
+OpenRouter embeddings reuse the chat API key. The default Nemotron `:free` route
+is free; selecting another model may incur charges. There is no paid fallback.
 Your actual `.env` is not edited by this change. New configuration defaults are
 listed in `.env.example`.
 
@@ -133,7 +164,7 @@ listed in `.env.example`.
   crash during a folder move still needs reconciliation. Perform renames through
   the app; external renames are not automatically mapped to existing note IDs.
 - `note_sections` stores user/note IDs, heading, character start/end offsets,
-  source version, embedding model identity, and a 768-dimensional vector. It
+  source version, embedding model identity, and a 2,048-dimensional vector by default. It
   contains no chunk body. Offsets refer to decoded UTF-8 text, not byte positions.
 - Proposal drafts, review previews and acceptance receipts still contain text in
   `structuring_proposals` for the existing review/history workflow. These are
@@ -145,12 +176,13 @@ A note create/update invalidates its previous chunks and queues work in the same
 database transaction. Deletion removes chunks and jobs. An indexing worker reads
 Markdown through the storage port and splits it at headings, using LangChain to subdivide long sections into
 UTF-8-safe chunks of up to 1,200 bytes. Each embedding includes bounded title/path/heading/tag
-metadata and uses Nomic's `search_document:` prefix. Queries use `search_query:`.
+metadata. Only the optional Nomic/Ollama adapter uses `search_document:` and
+`search_query:` prefixes; Nemotron receives plain text plus the explicit task type.
 
 Long queries are embedded in bounded pieces and mean-pooled, so inputs are not
 discarded before embedding. This can dilute relevance when a dump mixes many topics;
 query decomposition is a future improvement. Inputs are bounded conservatively for
-the configured Nomic model. LangChain's Ollama integration uses the SDK's default
+the embedding model. The optional LangChain Ollama integration uses the SDK's default
 server truncation behavior; models with smaller context limits require adjusting
 the chunk budget.
 
@@ -202,8 +234,11 @@ job completion happen atomically. These are indexing guarantees; the existing
 Markdown/database acceptance crash-recovery limitation is unchanged.
 
 Changing the embedding model requires restarting backend/worker processes and a
-full reindex. Use a Nomic-compatible 768-dimensional model; other dimensions are
-rejected. Existing vectors are not mixed with a different model identity. If a
+full reindex. The default OpenRouter/Nemotron size is 2,048; optional local
+Ollama defaults to 768. `EMBEDDING_DIMENSIONS` can explicitly override validation
+and schema size for another compatible configuration. This never truncates or
+pads returned vectors. Run the dimension migration when changing sizes. Existing
+vectors are not mixed with a different model/task identity. If a
 model tag is updated in place, force a full reindex before further retrieval.
 
 ## Checks

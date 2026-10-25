@@ -16,7 +16,7 @@ from app.application.retrieval import chunk_sections, embedding_text
 from app.core.config import get_settings
 from app.domain.models import Note, NoteIndexJob, NoteSection
 from app.infrastructure.database.session import async_session_maker, close_db, init_db
-from app.infrastructure.embeddings.ollama import OllamaEmbeddingProvider
+from app.infrastructure.embeddings.factory import get_embedding_provider
 from app.infrastructure.rag.index import enqueue_note
 from app.infrastructure.rag.reconcile import reconcile_files
 from app.infrastructure.storage.factory import get_storage
@@ -27,7 +27,7 @@ logger = logging.getLogger("intellinotes.rag.worker")
 class IndexWorker:
     def __init__(self, sessions=async_session_maker, embeddings=None, storage=None):
         self.sessions = sessions
-        self.embeddings = embeddings or OllamaEmbeddingProvider()
+        self.embeddings = embeddings or get_embedding_provider()
         self.storage = storage if storage is not None else get_storage()
 
     async def run_once(self) -> bool:
@@ -76,6 +76,7 @@ class IndexWorker:
                                 [embedding_text(section) for section in batch]
                             ),
                             len(batch),
+                            self.embeddings.dimensions,
                         )
                     )
             async with self.sessions() as session:

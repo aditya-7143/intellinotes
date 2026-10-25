@@ -77,7 +77,7 @@ def get_storage_repo() -> BaseStorage:
 
 
 def get_section_retriever(db: Annotated[AsyncSession, Depends(get_db)]):
-    from app.infrastructure.embeddings.ollama import OllamaEmbeddingProvider
+    from app.infrastructure.embeddings.factory import get_embedding_provider
     from app.infrastructure.rag.retriever import SemanticSectionRetriever
 
-    return SemanticSectionRetriever(db, OllamaEmbeddingProvider(), get_storage())
+    return SemanticSectionRetriever(db, get_embedding_provider(), get_storage())

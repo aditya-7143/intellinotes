@@ -5,22 +5,25 @@ from typing import Protocol
 
 from app.core.exceptions import LLMProviderError
 
-DIMENSIONS = 768
+DIMENSIONS = 2048
 
 
 class EmbeddingProvider(Protocol):
     model_key: str
+    dimensions: int
 
     async def embed(self, texts: list[str], *, query: bool = False) -> list[list[float]]: ...
 
 
-def validate_vectors(vectors: list, count: int) -> list[list[float]]:
+def validate_vectors(vectors: list, count: int, dimensions: int = DIMENSIONS) -> list[list[float]]:
     if not isinstance(vectors, list) or len(vectors) != count:
         raise LLMProviderError("Embedding provider returned an incorrect number of vectors")
     result = []
     for vector in vectors:
-        if not isinstance(vector, list) or len(vector) != DIMENSIONS:
-            raise LLMProviderError("Embedding provider must return 768-dimensional vectors")
+        if not isinstance(vector, list) or len(vector) != dimensions:
+            raise LLMProviderError(
+                f"Embedding provider must return {dimensions}-dimensional vectors"
+            )
         if any(
             isinstance(value, bool)
             or not isinstance(value, int | float)

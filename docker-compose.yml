@@ -23,20 +23,19 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/intellinotes
       - JWT_SECRET=your-super-secret-key-change-in-production
-      - LLM_PROVIDER=ollama
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - EMBEDDING_BASE_URL=http://ollama:11434
-      - EMBEDDING_MODEL=nomic-embed-text
+      - LLM_PROVIDER=openrouter
+      - EMBEDDING_PROVIDER=openrouter
+      - EMBEDDING_MODEL=nvidia/nemotron-3-embed-1b:free
       - STORAGE_TYPE=local
       - LOCAL_STORAGE_PATH=/app/data/notes
       - CORS_ORIGINS=["http://localhost:3000"]
     depends_on:
       postgres:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
     volumes:
       - ./backend:/app
@@ -47,16 +46,16 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/intellinotes
-      - EMBEDDING_BASE_URL=http://ollama:11434
-      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_PROVIDER=openrouter
+      - EMBEDDING_MODEL=nvidia/nemotron-3-embed-1b:free
       - STORAGE_TYPE=local
       - LOCAL_STORAGE_PATH=/app/data/notes
     depends_on:
       postgres:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
     volumes:
       - ./backend:/app
@@ -64,6 +63,7 @@ services:
     command: python -m app.infrastructure.rag.worker
 
   ollama:
+    profiles: ["local"]
     image: ollama/ollama:latest
     ports:
       - "11434:11434"

@@ -53,13 +53,17 @@ class SemanticSectionRetriever:
         for start in range(0, len(query_parts), 16):
             batch = query_parts[start : start + 16]
             vectors.extend(
-                validate_vectors(await self.embeddings.embed(batch, query=True), len(batch))
+                validate_vectors(
+                    await self.embeddings.embed(batch, query=True),
+                    len(batch),
+                    self.embeddings.dimensions,
+                )
             )
         # Long dumps are embedded in bounded pieces, then pooled for one query vector.
         pooled = [sum(values) / len(vectors) for values in zip(*vectors)]
         if math.sqrt(sum(value * value for value in pooled)) < 1e-12:
             raise ValidationError("Unable to form a semantic search query")
-        vector = validate_vectors([pooled], 1)[0]
+        vector = validate_vectors([pooled], 1, self.embeddings.dimensions)[0]
         settings = get_settings()
         distance = NoteSection.embedding.cosine_distance(vector)
         result = await self.session.execute(

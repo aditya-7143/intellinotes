@@ -8,7 +8,7 @@ from sqlalchemy.orm import noload
 from app.api.v1.deps import get_current_user_id
 from app.domain.models import Note, NoteIndexJob, NoteSection
 from app.infrastructure.database.session import get_db
-from app.infrastructure.embeddings.ollama import OllamaEmbeddingProvider
+from app.infrastructure.embeddings.factory import get_embedding_provider
 from app.infrastructure.rag.index import enqueue_note
 
 router = APIRouter(prefix="/index", tags=["index"])
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/index", tags=["index"])
 async def index_status(
     db: Annotated[AsyncSession, Depends(get_db)], user_id=Depends(get_current_user_id)
 ):
-    model = OllamaEmbeddingProvider().model_key
+    model = get_embedding_provider().model_key
     notes = await db.scalar(select(func.count()).select_from(Note).where(Note.user_id == user_id))
     indexed = await db.scalar(
         select(func.count(func.distinct(NoteSection.note_id))).where(
