@@ -25,16 +25,17 @@ def vector():
 
 
 def note(user=None, content="# GANs\nMode collapse reduces diversity."):
-    return Note(
+    target = Note(
         id=uuid4(),
         user_id=user or uuid4(),
         title="GANs",
         content=content,
         folder_path="/AI",
-        folder_id=None,
         tags=[],
         updated_at=datetime.now(timezone.utc),
     )
+    target.storage_key = f"{target.user_id}/AI/GANs.md"
+    return target
 
 
 def embedding_provider():
@@ -94,7 +95,7 @@ class EmbeddingTests(IsolatedAsyncioTestCase):
             await provider.embed(["Mode collapse"])
             client.aembed_documents.assert_awaited_with(["search_document: Mode collapse"])
             self.assertEqual(factory.call_args.kwargs["client_kwargs"], {"timeout": 120})
-            self.assertIn("sections-v2-langchain", provider.model_key)
+            self.assertIn("sections-v3-file-references", provider.model_key)
 
     async def test_provider_error_does_not_expose_response_body(self):
         client = MagicMock()
@@ -125,14 +126,17 @@ class SemanticRetrievalTests(IsolatedAsyncioTestCase):
         self.session = AsyncMock()
         self.note = note()
         self.provider = embedding_provider()
-        self.retriever = SemanticSectionRetriever(self.session, self.provider)
+        self.storage = AsyncMock()
+        self.storage.get.return_value = self.note.content.encode()
+        self.retriever = SemanticSectionRetriever(self.session, self.provider, self.storage)
         self.session.scalar.side_effect = [None, self.note.id]
         self.chunk = NoteSection(
             user_id=self.note.user_id,
             note_id=self.note.id,
             source_version=self.note.version,
             heading="GANs",
-            content=self.note.content,
+            start_offset=0,
+            end_offset=len(self.note.content),
         )
         self.result = MagicMock()
         self.result.all.return_value = [(self.chunk, self.note)]
@@ -162,7 +166,7 @@ class SemanticRetrievalTests(IsolatedAsyncioTestCase):
         self.provider.embed.assert_not_awaited()
 
     async def test_stale_section_cannot_become_an_edit_target(self):
-        self.note.content = "Changed after indexing"
+        self.storage.get.return_value = b"Changed after indexing"
         with self.assertRaises(ConflictError):
             await self.retriever.retrieve(self.note.user_id, "query")
 
@@ -192,7 +196,7 @@ class QueueTests(IsolatedAsyncioTestCase):
         with patch(
             "app.infrastructure.repositories.note_repo.enqueue_note", new_callable=AsyncMock
         ) as enqueue:
-            await SQLAlchemyNoteRepository(session).update(target)
+            await SQLAlchemyNoteRepository(session, AsyncMock()).update(target)
             enqueue.assert_awaited_once_with(session, target)
         session.commit.assert_not_awaited()
 
@@ -201,7 +205,10 @@ class QueueTests(IsolatedAsyncioTestCase):
         result = MagicMock()
         result.scalar_one_or_none.return_value = note()
         session.execute.return_value = result
-        await SQLAlchemyNoteRepository(session).delete(result.scalar_one_or_none.return_value.id)
+        session.get.return_value = result.scalar_one_or_none.return_value
+        await SQLAlchemyNoteRepository(session, AsyncMock()).delete(
+            result.scalar_one_or_none.return_value.id
+        )
         sql = [str(call.args[0]) for call in session.execute.call_args_list]
         self.assertTrue(any("DELETE FROM note_sections" in statement for statement in sql))
         self.assertTrue(any("DELETE FROM note_index_jobs" in statement for statement in sql))
@@ -242,9 +249,13 @@ class WorkerTests(IsolatedAsyncioTestCase):
         self.read = FakeSession(self.note)
         self.publish = FakeSession(self.note, self.job)
         self.provider = embedding_provider()
+        self.storage = AsyncMock()
+        self.storage.get.return_value = self.note.content.encode()
 
     async def test_publishes_complete_index_and_removes_job(self):
-        worker = IndexWorker(Sessions(self.claim, self.read, self.publish), self.provider)
+        worker = IndexWorker(
+            Sessions(self.claim, self.read, self.publish), self.provider, self.storage
+        )
         self.assertTrue(await worker.run_once())
         self.publish.delete.assert_awaited_once_with(self.job)
         chunk = self.publish.add.call_args.args[0]
@@ -256,7 +267,9 @@ class WorkerTests(IsolatedAsyncioTestCase):
     async def test_superseded_generation_never_publishes(self):
         newer_job = NoteIndexJob(note_id=self.note.id, generation=uuid4())
         self.publish = FakeSession(self.note, newer_job)
-        await IndexWorker(Sessions(self.claim, self.read, self.publish), self.provider).run_once()
+        await IndexWorker(
+            Sessions(self.claim, self.read, self.publish), self.provider, self.storage
+        ).run_once()
         self.publish.add.assert_not_called()
         self.publish.delete.assert_not_awaited()
 
@@ -266,7 +279,7 @@ class WorkerTests(IsolatedAsyncioTestCase):
         self.publish = FakeSession(edited, self.job)
         with patch("app.infrastructure.rag.worker.enqueue_note", new_callable=AsyncMock) as enqueue:
             await IndexWorker(
-                Sessions(self.claim, self.read, self.publish), self.provider
+                Sessions(self.claim, self.read, self.publish), self.provider, self.storage
             ).run_once()
             enqueue.assert_awaited_once_with(self.publish, edited)
         self.publish.add.assert_not_called()
@@ -274,7 +287,9 @@ class WorkerTests(IsolatedAsyncioTestCase):
     async def test_embedding_failure_is_retryable_and_redacted(self):
         self.provider.embed.side_effect = RuntimeError("private payload")
         failure = FakeSession(self.job)
-        await IndexWorker(Sessions(self.claim, self.read, failure), self.provider).run_once()
+        await IndexWorker(
+            Sessions(self.claim, self.read, failure), self.provider, self.storage
+        ).run_once()
         self.assertEqual(self.job.attempts, 1)
         self.assertEqual(self.job.last_error, "RuntimeError")
         self.assertIsNone(self.job.lease_until)
@@ -285,10 +300,12 @@ class WorkerTests(IsolatedAsyncioTestCase):
         self.job.attempts = 7
         self.provider.embed.side_effect = RuntimeError()
         await IndexWorker(
-            Sessions(self.claim, self.read, FakeSession(self.job)), self.provider
+            Sessions(self.claim, self.read, FakeSession(self.job)), self.provider, self.storage
         ).run_once()
         self.assertEqual(self.job.status, "failed")
 
     async def test_idle_worker_does_not_call_provider(self):
-        self.assertFalse(await IndexWorker(Sessions(FakeSession(None)), self.provider).run_once())
+        self.assertFalse(
+            await IndexWorker(Sessions(FakeSession(None)), self.provider, self.storage).run_once()
+        )
         self.provider.embed.assert_not_awaited()

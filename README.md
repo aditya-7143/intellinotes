@@ -14,7 +14,19 @@ Relevant chunks from the current user's notes supply context to the configured L
 note changes queue reindexing. PostgreSQL needs the vector extension, Ollama needs
 the `nomic-embed-text` model, and an indexing worker must process existing and changed
 notes. See [semantic retrieval setup](backend/RAG.md), including reindexing after
-the chunker upgrade. The earlier BM25 keyword ranker has been replaced.
+the file-reference index upgrade. The earlier BM25 keyword ranker has been replaced.
+
+Markdown files are the authoritative note content. PostgreSQL stores note metadata
+and a rebuildable RAG index of embeddings plus file-section offsets, not note or
+chunk bodies. Retrieval loads matching text from the files. The worker detects
+changes to registered files every 30 seconds. Existing installations must run the
+guarded migration described in [RAG.md](backend/RAG.md) before restarting services.
+Proposal review/history snapshots remain in PostgreSQL.
+
+Folders are discovered directly from storage, including empty directories. There
+is no folders table or note folder foreign key in the current schema. APIs use
+`folder_path` and `parent_path`; folder renames move the directory, update affected
+note references, and queue reindexing. Only empty folders can be deleted.
 
 Feedback reruns retrieval and validation with the original snippet and instructions.
 The original snippet is retained. Refinement prompts preserve meaning and code
@@ -147,12 +159,12 @@ npm run dev
 ### Folders
 - `GET /api/v1/folders` - List folders (tree)
 - `POST /api/v1/folders` - Create folder
-- `GET /api/v1/folders/{id}` - Get folder
-- `PATCH /api/v1/folders/{id}` - Update folder
-- `DELETE /api/v1/folders/{id}` - Delete folder
+- `GET /api/v1/folders/item?path=/Backend` - Get folder by path
+- `PATCH /api/v1/folders/item?path=/Backend` - Rename or move folder (`name`, `parent_path`)
+- `DELETE /api/v1/folders/item?path=/Backend` - Delete an empty folder
 
 ### Notes
-- `GET /api/v1/notes` - List notes (optional `folder_id`)
+- `GET /api/v1/notes` - List notes (optional `folder_path`, including `/` for root)
 - `GET /api/v1/notes/search?q=` - Search notes
 - `POST /api/v1/notes` - Create note
 - `GET /api/v1/notes/{id}` - Get note

@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from typing import Optional
@@ -44,39 +45,22 @@ class User(Base):
     )
 
     notes: Mapped[list["Note"]] = relationship(back_populates="user", lazy="selectin")
-    folders: Mapped[list["Folder"]] = relationship(back_populates="user", lazy="selectin")
     proposals: Mapped[list["StructuringProposal"]] = relationship(
         back_populates="user", lazy="selectin"
     )
 
 
-class Folder(Base):
-    __tablename__ = "folders"
+@dataclass(frozen=True)
+class Folder:
+    """Directory discovered in storage; not a database entity."""
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=True, index=True
-    )
-    path: Mapped[str] = mapped_column(String(1000), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.now, nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.now, onupdate=datetime.now, nullable=False
-    )
+    user_id: uuid.UUID
+    name: str
+    path: str
 
-    user: Mapped["User"] = relationship(back_populates="folders", lazy="selectin")
-    parent: Mapped[Optional["Folder"]] = relationship(
-        back_populates="children", remote_side=[id], lazy="selectin"
-    )
-    children: Mapped[list["Folder"]] = relationship(back_populates="parent", lazy="selectin")
-    notes: Mapped[list["Note"]] = relationship(back_populates="folder", lazy="selectin")
-
-    __table_args__ = (Index("ix_folders_user_path", "user_id", "path"),)
+    @property
+    def parent_path(self) -> str:
+        return self.path.rsplit("/", 1)[0] or "/"
 
 
 class Note(Base):
@@ -86,11 +70,17 @@ class Note(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    folder_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Hydrated from storage by adapters; never persisted as a database column.
+    @property
+    def content(self) -> str:
+        return self.__dict__.get("_file_content", "")
+
+    @content.setter
+    def content(self, value: str) -> None:
+        self.__dict__["_file_content"] = value
+
     folder_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     tags: Mapped[list[str]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
@@ -104,9 +94,8 @@ class Note(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="notes", lazy="selectin")
-    folder: Mapped[Optional["Folder"]] = relationship(back_populates="notes", lazy="selectin")
 
-    __table_args__ = (Index("ix_notes_user_folder", "user_id", "folder_id"),)
+    __table_args__ = (Index("ix_notes_user_path", "user_id", "folder_path"),)
 
     @property
     def version(self) -> str:
@@ -148,7 +137,8 @@ class NoteSection(Base):
     )
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     heading: Mapped[str] = mapped_column(Text, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    start_offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     source_version: Mapped[str] = mapped_column(String(64), nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(255), nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)

@@ -52,7 +52,7 @@ class TokenRefresh(BaseModel):
 
 class FolderBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    parent_id: Optional[UUID] = None
+    parent_path: str = "/"
 
 
 class FolderCreate(FolderBase):
@@ -61,15 +61,12 @@ class FolderCreate(FolderBase):
 
 class FolderUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    parent_id: Optional[UUID] = None
+    parent_path: Optional[str] = None
 
 
 class FolderResponse(FolderBase):
-    id: UUID
     user_id: UUID
     path: str
-    created_at: datetime
-    updated_at: datetime
     children: list["FolderResponse"] = []
 
     class Config:
@@ -79,7 +76,7 @@ class FolderResponse(FolderBase):
 class NoteBase(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     content: str = Field(min_length=1)
-    folder_id: Optional[UUID] = None
+    folder_path: str = "/"
     tags: list[str] = []
 
 
@@ -90,7 +87,7 @@ class NoteCreate(NoteBase):
 class NoteUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=500)
     content: Optional[str] = Field(default=None, min_length=1)
-    folder_id: Optional[UUID] = None
+    folder_path: Optional[str] = None
     tags: Optional[list[str]] = None
 
 
@@ -110,13 +107,10 @@ class NoteResponse(NoteBase):
 class AcceptedFolderResponse(BaseModel):
     """Acceptance returns flat folders, avoiding lazy relationship serialization."""
 
-    id: UUID
     user_id: UUID
     name: str
-    parent_id: Optional[UUID] = None
+    parent_path: str = "/"
     path: str
-    created_at: datetime
-    updated_at: datetime
 
     class Config:
         from_attributes = True

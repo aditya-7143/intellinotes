@@ -24,7 +24,7 @@ export default function LibraryPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [savingNote, setSavingNote] = useState(false);
-  const [formData, setFormData] = useState({ title: '', content: '', folder_id: '', tags: '' });
+  const [formData, setFormData] = useState({ title: '', content: '', folder_path: '', tags: '' });
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -53,7 +53,7 @@ export default function LibraryPage() {
     setFormData({
       title: note.title,
       content: note.content,
-      folder_id: note.folder_id || '',
+      folder_path: note.folder_path || '',
       tags: note.tags ? note.tags.join(', ') : '',
     });
     setShowEditModal(true);
@@ -71,7 +71,7 @@ export default function LibraryPage() {
       const note = notes.find(item => item.id === params.get('edit'));
       if (note) {
         setEditingNote(note);
-        setFormData({ title: note.title, content: note.content, folder_id: note.folder_id || '', tags: note.tags.join(', ') });
+        setFormData({ title: note.title, content: note.content, folder_path: note.folder_path || '', tags: note.tags.join(', ') });
         setShowEditModal(true);
         window.history.replaceState(null, '', '/dashboard/library');
       }
@@ -87,14 +87,14 @@ export default function LibraryPage() {
       const payload = {
         title: formData.title.trim() || undefined,
         content: formData.content,
-        folder_id: formData.folder_id || undefined,
+        folder_path: formData.folder_path || '/',
         tags: formData.tags.split(',').map((t) => t.trim()).filter(Boolean),
       };
       const response = await noteApi.update(editingNote.id, payload);
       setSavedIds([response.data.id]);
       setShowEditModal(false);
       setEditingNote(null);
-      setFormData({ title: '', content: '', folder_id: '', tags: '' });
+      setFormData({ title: '', content: '', folder_path: '', tags: '' });
       loadData();
     } catch (error) {
       setError('Unable to save this note. Please try again.');
@@ -114,7 +114,7 @@ export default function LibraryPage() {
   };
 
   const filteredNotes = notes.filter(note =>
-    (selectedFolder === null || (selectedFolder === 'unfiled' ? !note.folder_id : note.folder_id === selectedFolder)) && (
+    (selectedFolder === null || (selectedFolder === 'unfiled' ? note.folder_path === '/' : note.folder_path === selectedFolder)) && (
     note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     note.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
     note.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())))
@@ -139,7 +139,7 @@ export default function LibraryPage() {
         <FolderPanel folders={folders} selected={selectedFolder} onSelect={setSelectedFolder} onRefresh={loadData} />
         <section aria-label="Notes" className="min-w-0 space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-primary-900">{selectedFolder === 'unfiled' ? 'Unfiled' : folders.find(folder => folder.id === selectedFolder)?.path || 'All notes'}</h2>
+            <h2 className="text-lg font-semibold text-primary-900">{selectedFolder === 'unfiled' ? 'Unfiled' : folders.find(folder => folder.path === selectedFolder)?.path || 'All notes'}</h2>
             <span className="shrink-0 text-xs text-gray-500">{isLoading ? 'Loading…' : `${filteredNotes.length} ${filteredNotes.length === 1 ? 'note' : 'notes'}`}</span>
           </div>
           <div className="relative">
@@ -239,13 +239,13 @@ export default function LibraryPage() {
                 <div className="space-y-1">
                   <label className="label">Folder (optional)</label>
                   <select
-                    value={formData.folder_id}
-                    onChange={(e) => setFormData({ ...formData, folder_id: e.target.value })}
+                    value={formData.folder_path || '/'}
+                    onChange={(e) => setFormData({ ...formData, folder_path: e.target.value })}
                     className="input"
                   >
-                    <option value="">No Folder (Root /)</option>
+                    <option value="/">No Folder (Root /)</option>
                     {folders.map((f) => (
-                      <option key={f.id} value={f.id}>
+                      <option key={f.path} value={f.path}>
                         {f.path || f.name}
                       </option>
                     ))}

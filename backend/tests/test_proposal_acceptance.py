@@ -60,7 +60,7 @@ class AcceptanceTests(IsolatedAsyncioTestCase):
         self.transaction = SQLAlchemyAcceptanceTransaction(self.session, self.storage)
         self.proposals, self.folders, self.notes = AsyncMock(), AsyncMock(), AsyncMock()
         self.folders.get_by_path.return_value = None
-        self.folders.create.side_effect = populate
+        self.folders.create.side_effect = lambda folder: folder
         self.notes.create.side_effect = populate
         self.notes.update.side_effect = populate
         self.notes.get_by_storage_key.return_value = None
@@ -96,7 +96,6 @@ class AcceptanceTests(IsolatedAsyncioTestCase):
                 user_id=self.user_id,
                 title="GANs",
                 content="# GANs\nOriginal",
-                folder_id=None,
                 folder_path="/",
                 tags=[],
                 storage_key=f"{self.user_id}/GANs.md",
@@ -127,8 +126,8 @@ class AcceptanceTests(IsolatedAsyncioTestCase):
     async def test_legacy_creation_builds_parents_and_serializes(self):
         response = await self.use_case.execute(self.proposal.id, self.user_id)
         self.assertEqual([folder.path for folder in response.folders], ["/AI", "/AI/Models"])
-        self.assertEqual(response.folders[1].parent_id, response.folders[0].id)
-        self.assertEqual(response.notes[0].folder_id, response.folders[1].id)
+        self.assertEqual(response.folders[1].parent_path, response.folders[0].path)
+        self.assertEqual(response.notes[0].folder_path, response.folders[1].path)
         self.assertIn('"version":', response.model_dump_json())
         self.assertEqual(self.proposal.status, ProposalStatus.ACCEPTED)
         self.session.commit.assert_awaited_once()

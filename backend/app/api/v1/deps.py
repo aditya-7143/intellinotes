@@ -10,7 +10,7 @@ from app.domain.models import User
 from app.infrastructure.database.session import get_db
 from app.infrastructure.llm.base import BaseLLMProvider
 from app.infrastructure.llm.factory import get_llm_provider
-from app.infrastructure.repositories.folder_repo import SQLAlchemyFolderRepository
+from app.infrastructure.repositories.folder_repo import StorageFolderRepository
 from app.infrastructure.repositories.note_repo import SQLAlchemyNoteRepository
 from app.infrastructure.repositories.proposal_repo import SQLAlchemyProposalRepository
 from app.infrastructure.repositories.user_repo import SQLAlchemyUserRepository
@@ -56,12 +56,12 @@ def get_user_repo(db: Annotated[AsyncSession, Depends(get_db)]) -> SQLAlchemyUse
     return SQLAlchemyUserRepository(db)
 
 
-def get_folder_repo(db: Annotated[AsyncSession, Depends(get_db)]) -> SQLAlchemyFolderRepository:
-    return SQLAlchemyFolderRepository(db)
+def get_folder_repo() -> StorageFolderRepository:
+    return StorageFolderRepository(get_storage())
 
 
 def get_note_repo(db: Annotated[AsyncSession, Depends(get_db)]) -> SQLAlchemyNoteRepository:
-    return SQLAlchemyNoteRepository(db)
+    return SQLAlchemyNoteRepository(db, get_storage())
 
 
 def get_proposal_repo(db: Annotated[AsyncSession, Depends(get_db)]) -> SQLAlchemyProposalRepository:
@@ -80,4 +80,4 @@ def get_section_retriever(db: Annotated[AsyncSession, Depends(get_db)]):
     from app.infrastructure.embeddings.ollama import OllamaEmbeddingProvider
     from app.infrastructure.rag.retriever import SemanticSectionRetriever
 
-    return SemanticSectionRetriever(db, OllamaEmbeddingProvider())
+    return SemanticSectionRetriever(db, OllamaEmbeddingProvider(), get_storage())

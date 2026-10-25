@@ -148,14 +148,11 @@ class AcceptProposalUseCase:
             saved_notes = []
             for operation in structure.operations:
                 if isinstance(operation, CreateNoteOperation):
-                    folder = await self._ensure_folder(
-                        user_id, operation.folder_path, created_folders
-                    )
+                    await self._ensure_folder(user_id, operation.folder_path, created_folders)
                     key = self._storage_key(user_id, operation.folder_path, operation.title)
                     await self.transaction.save(key, operation.content.encode(), expected=None)
                     note = Note(
                         user_id=user_id,
-                        folder_id=folder.id if folder else None,
                         title=operation.title,
                         content=operation.content,
                         folder_path=operation.folder_path,
@@ -215,19 +212,13 @@ class AcceptProposalUseCase:
             return None
         if path in folders:
             return folders[path]
-        parent = await self._ensure_folder(user_id, path.rsplit("/", 1)[0] or "/", folders)
+        await self._ensure_folder(user_id, path.rsplit("/", 1)[0] or "/", folders)
         folder = await self.folder_repo.get_by_path(user_id, path)
-        if folder:
-            if folder.parent_id != (parent.id if parent else None):
-                raise ConflictError(
-                    "Existing folder hierarchy is inconsistent; repair it before saving"
-                )
-        else:
+        if not folder:
             folder = await self.folder_repo.create(
                 Folder(
                     user_id=user_id,
                     name=path.rsplit("/", 1)[-1],
-                    parent_id=parent.id if parent else None,
                     path=path,
                 )
             )

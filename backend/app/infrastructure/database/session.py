@@ -39,9 +39,28 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         # API and indexing workers may start simultaneously on the same database.
-        await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('intellinotes-schema-init'))"))
+        await conn.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext('intellinotes-schema-init'))")
+        )
         # PostgreSQL must have the pgvector extension installed on the server.
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        legacy = await conn.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = 'notes' "
+                "AND column_name = 'content')"
+            )
+        )
+        if legacy:
+            raise RuntimeError(
+                "Legacy note storage detected. Stop API/workers and run "
+                "python -m app.infrastructure.database.migrate_file_storage first."
+            )
+        if await conn.scalar(text("SELECT to_regclass('folders')")):
+            raise RuntimeError(
+                "Legacy folders table detected. Stop API/workers and run "
+                "python -m app.infrastructure.database.migrate_storage_folders first."
+            )
         await conn.run_sync(Base.metadata.create_all)
 
 

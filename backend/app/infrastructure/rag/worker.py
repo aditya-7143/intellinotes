@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -10,20 +11,24 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import noload
 
 from app.application.embeddings import validate_vectors
+from app.application.note_content import load_note_content
 from app.application.retrieval import chunk_sections, embedding_text
 from app.core.config import get_settings
 from app.domain.models import Note, NoteIndexJob, NoteSection
 from app.infrastructure.database.session import async_session_maker, close_db, init_db
 from app.infrastructure.embeddings.ollama import OllamaEmbeddingProvider
 from app.infrastructure.rag.index import enqueue_note
+from app.infrastructure.rag.reconcile import reconcile_files
+from app.infrastructure.storage.factory import get_storage
 
 logger = logging.getLogger("intellinotes.rag.worker")
 
 
 class IndexWorker:
-    def __init__(self, sessions=async_session_maker, embeddings=None):
+    def __init__(self, sessions=async_session_maker, embeddings=None, storage=None):
         self.sessions = sessions
         self.embeddings = embeddings or OllamaEmbeddingProvider()
+        self.storage = storage if storage is not None else get_storage()
 
     async def run_once(self) -> bool:
         now = datetime.now(timezone.utc)
@@ -54,13 +59,14 @@ class IndexWorker:
                 )
                 if note is None:
                     return True  # cascading deletion also removes the job
+                await load_note_content(note, self.storage)
                 version = note.version
                 sections = chunk_sections(note)
                 if not sections:
                     # Empty legacy notes still receive an index marker.
                     from app.application.retrieval import Section
 
-                    sections = [Section(note, "Empty note", "(empty note)")]
+                    sections = [Section(note, "Empty note", "")]
                 vectors = []
                 for start in range(0, len(sections), 16):
                     batch = sections[start : start + 16]
@@ -88,10 +94,12 @@ class IndexWorker:
                     )
                     if current is None or job is None or job.generation != generation:
                         return True
+                    await load_note_content(current, self.storage)
                     if current.version != version:
                         await enqueue_note(session, current)
                         return True
                     await session.execute(delete(NoteSection).where(NoteSection.note_id == note_id))
+                    offset = 0
                     for ordinal, (section, vector) in enumerate(zip(sections, vectors)):
                         session.add(
                             NoteSection(
@@ -99,12 +107,14 @@ class IndexWorker:
                                 user_id=current.user_id,
                                 ordinal=ordinal,
                                 heading=section.heading,
-                                content=section.content,
+                                start_offset=offset,
+                                end_offset=offset + len(section.content),
                                 source_version=version,
                                 embedding_model=self.embeddings.model_key,
                                 embedding=vector,
                             )
                         )
+                        offset += len(section.content)
                     await session.delete(job)
             logger.info("Indexed note_id=%s sections=%d", note_id, len(sections))
         except Exception as error:
@@ -157,7 +167,11 @@ async def main():
         if args.backfill:
             logger.info("Queued notes=%d", await backfill())
         worker = IndexWorker()
+        next_scan = 0.0
         while True:
+            if time.monotonic() >= next_scan:
+                await reconcile_files(worker.sessions, worker.storage, worker.embeddings.model_key)
+                next_scan = time.monotonic() + 30
             processed = await worker.run_once()
             if args.once:
                 break

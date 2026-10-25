@@ -27,7 +27,7 @@ def log_operation(operation: str):
             metadata = {}
             if logger.isEnabledFor(logging.DEBUG):
                 values = parameters.bind(*args, **kwargs).arguments
-                for name in ("user_id", "proposal_id", "note_id", "folder_id"):
+                for name in ("user_id", "proposal_id", "note_id"):
                     if values.get(name) is not None:
                         metadata[name] = str(values[name])
                 for name in ("snippet", "context", "feedback", "content"):

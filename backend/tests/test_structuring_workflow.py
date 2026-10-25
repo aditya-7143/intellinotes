@@ -23,7 +23,6 @@ def make_note(
         folder_path="/Backend",
         content=content,
         tags=["jwt"],
-        folder_id=None,
     )
 
 

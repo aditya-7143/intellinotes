@@ -1,62 +1,54 @@
-from typing import Optional
+"""Directory adapter: paths are always discovered from storage."""
+
 from uuid import UUID
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.application.ports import FolderRepository
+from app.application.ports import StorageRepository
+from app.core.exceptions import ValidationError
+from app.core.paths import validate_folder_path
 from app.domain.models import Folder
 
 
-class SQLAlchemyFolderRepository(FolderRepository):
-    def __init__(self, session: AsyncSession):
-        self.session = session
+class StorageFolderRepository:
+    def __init__(self, storage: StorageRepository):
+        self.storage = storage
+
+    @staticmethod
+    def key(user_id: UUID, path: str) -> str:
+        validate_folder_path(path)
+        if path == "/":
+            raise ValidationError("The library root cannot be changed")
+        return f"{user_id}{path}"
 
     async def get_paths(self, user_id: UUID) -> list[str]:
-        return list(
-            (
-                await self.session.scalars(
-                    select(Folder.path).where(Folder.user_id == user_id).order_by(Folder.path)
-                )
-            ).all()
+        prefix = f"{user_id}/"
+        return sorted(
+            {
+                validate_folder_path("/" + key[len(prefix) :])
+                for key in await self.storage.list_folders(str(user_id))
+                if key.startswith(prefix)
+            }
         )
-
-    async def create(self, folder: Folder) -> Folder:
-        self.session.add(folder)
-        await self.session.flush()
-        await self.session.refresh(folder)
-        return folder
-
-    async def get_by_id(self, folder_id: UUID) -> Optional[Folder]:
-        result = await self.session.execute(select(Folder).where(Folder.id == folder_id))
-        return result.scalar_one_or_none()
 
     async def get_by_user(self, user_id: UUID) -> list[Folder]:
-        result = await self.session.execute(
-            select(Folder).where(Folder.user_id == user_id).order_by(Folder.path)
-        )
-        return list(result.scalars().all())
+        return [
+            Folder(user_id, path.rsplit("/", 1)[-1], path) for path in await self.get_paths(user_id)
+        ]
 
-    async def get_by_path(self, user_id: UUID, path: str) -> Optional[Folder]:
-        result = await self.session.execute(
-            select(Folder).where(Folder.user_id == user_id, Folder.path == path)
-        )
-        return result.scalar_one_or_none()
+    async def get_by_path(self, user_id: UUID, path: str) -> Folder | None:
+        validate_folder_path(path)
+        if path in await self.get_paths(user_id):
+            return Folder(user_id, path.rsplit("/", 1)[-1], path)
+        return None
 
-    async def get_children(self, parent_id: UUID) -> list[Folder]:
-        result = await self.session.execute(
-            select(Folder).where(Folder.parent_id == parent_id).order_by(Folder.name)
-        )
-        return list(result.scalars().all())
-
-    async def update(self, folder: Folder) -> Folder:
-        await self.session.flush()
-        await self.session.refresh(folder)
+    async def create(self, folder: Folder) -> Folder:
+        await self.storage.create_folder(self.key(folder.user_id, folder.path))
         return folder
 
-    async def delete(self, folder_id: UUID) -> bool:
-        folder = await self.get_by_id(folder_id)
-        if folder:
-            await self.session.delete(folder)
-            return True
-        return False
+    async def move(self, user_id: UUID, path: str, destination: str) -> Folder:
+        if destination == path or destination.startswith(path + "/"):
+            raise ValidationError("Cannot move a folder inside itself")
+        await self.storage.move_folder(self.key(user_id, path), self.key(user_id, destination))
+        return Folder(user_id, destination.rsplit("/", 1)[-1], destination)
+
+    async def delete(self, user_id: UUID, path: str) -> bool:
+        return await self.storage.delete_folder(self.key(user_id, path))

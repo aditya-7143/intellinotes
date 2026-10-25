@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.application.ports import FolderRepository, NoteRepository, StorageRepository
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
+from app.core.paths import validate_folder_path, validate_note_title
 from app.domain.models import Note
 
 
@@ -18,7 +19,7 @@ class CreateNoteUseCase:
         user_id: UUID,
         title: Optional[str],
         content: str,
-        folder_id: Optional[UUID] = None,
+        folder_path: str = "/",
         tags: Optional[list[str]] = None,
     ) -> Note:
         if not content.strip():
@@ -30,23 +31,22 @@ class CreateNoteUseCase:
             title = first_line.replace("/", " ").replace("\\", " ")
             title = " ".join(title.split())[:80].strip().strip(".") or "Untitled note"
 
-        folder_path = "/"
-        if folder_id:
-            folder = await self.folder_repo.get_by_id(folder_id)
-            if not folder or folder.user_id != user_id:
+        validate_note_title(title)
+        validate_folder_path(folder_path)
+        if folder_path != "/":
+            folder = await self.folder_repo.get_by_path(user_id, folder_path)
+            if not folder:
                 raise NotFoundError("Folder not found")
-            folder_path = folder.path
 
         storage_key = f"{user_id}{folder_path}/{title}.md".replace("//", "/")
         existing = await self.note_repo.get_by_storage_key(storage_key)
-        if existing:
+        if existing or await self.storage_repo.exists(storage_key):
             raise ConflictError("Note already exists at this path")
 
         await self.storage_repo.save(storage_key, content.encode())
 
         note = Note(
             user_id=user_id,
-            folder_id=folder_id,
             title=title,
             content=content,
             folder_path=folder_path,
@@ -71,8 +71,10 @@ class GetNoteUseCase:
 class ListNotesUseCase:
     note_repo: NoteRepository
 
-    async def execute(self, user_id: UUID, folder_id: Optional[UUID] = None) -> list[Note]:
-        return await self.note_repo.get_by_user(user_id, folder_id)
+    async def execute(self, user_id: UUID, folder_path: Optional[str] = None) -> list[Note]:
+        if folder_path is not None:
+            validate_folder_path(folder_path)
+        return await self.note_repo.get_by_user(user_id, folder_path)
 
 
 @dataclass
@@ -87,7 +89,7 @@ class UpdateNoteUseCase:
         user_id: UUID,
         title: Optional[str] = None,
         content: Optional[str] = None,
-        folder_id: Optional[UUID] = None,
+        folder_path: Optional[str] = None,
         tags: Optional[list[str]] = None,
     ) -> Note:
         note = await self.note_repo.get_by_id(note_id, for_update=True)
@@ -97,17 +99,22 @@ class UpdateNoteUseCase:
         new_title = title if title is not None else note.title
         new_folder_path = note.folder_path
 
-        if folder_id is not None:
-            folder = await self.folder_repo.get_by_id(folder_id)
-            if not folder or folder.user_id != user_id:
+        validate_note_title(new_title)
+        if folder_path is not None:
+            validate_folder_path(folder_path)
+            if folder_path != "/" and not await self.folder_repo.get_by_path(user_id, folder_path):
                 raise NotFoundError("Folder not found")
-            note.folder_id = folder_id
-            new_folder_path = folder.path
+            new_folder_path = folder_path
             note.folder_path = new_folder_path
 
         new_storage_key = f"{user_id}{new_folder_path}/{new_title}.md".replace("//", "/")
+        old_storage_key = note.storage_key
+        if old_storage_key != new_storage_key:
+            if await self.note_repo.get_by_storage_key(
+                new_storage_key
+            ) or await self.storage_repo.exists(new_storage_key):
+                raise ConflictError("Note already exists at this path")
         if note.storage_key and note.storage_key != new_storage_key:
-            await self.storage_repo.delete(note.storage_key)
             note.storage_key = new_storage_key
         elif not note.storage_key:
             note.storage_key = new_storage_key
@@ -122,6 +129,10 @@ class UpdateNoteUseCase:
         if note.storage_key:
             effective_content = content if content is not None else note.content
             await self.storage_repo.save(note.storage_key, effective_content.encode())
+
+        # Keep the original until the replacement has been written successfully.
+        if old_storage_key and old_storage_key != new_storage_key:
+            await self.storage_repo.delete(old_storage_key)
 
         return await self.note_repo.update(note)
 

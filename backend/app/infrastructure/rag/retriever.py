@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
 from app.application.embeddings import EmbeddingProvider, validate_vectors
+from app.application.note_content import load_note_content
+from app.application.ports import StorageRepository
 from app.application.retrieval import Section, split_text
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ValidationError
@@ -14,8 +16,11 @@ from app.domain.models import Note, NoteIndexJob, NoteSection
 
 
 class SemanticSectionRetriever:
-    def __init__(self, session: AsyncSession, embeddings: EmbeddingProvider):
+    def __init__(
+        self, session: AsyncSession, embeddings: EmbeddingProvider, storage: StorageRepository
+    ):
         self.session, self.embeddings = session, embeddings
+        self.storage = storage
 
     @log_operation("rag.retrieve")
     async def retrieve(self, user_id: UUID, query: str) -> list[Section]:
@@ -75,12 +80,20 @@ class SemanticSectionRetriever:
             .limit(settings.RAG_TOP_K)
         )
         sections = []
+        loaded = set()
         for chunk, note in result.all():
             if note.user_id != user_id or chunk.user_id != user_id:
                 continue
+            if note.id not in loaded:
+                await load_note_content(note, self.storage)
+                loaded.add(note.id)
             if chunk.source_version != note.version:
                 raise ConflictError(
                     "Search index is stale. Reindex your library before organizing notes."
                 )
-            sections.append(Section(note, chunk.heading, chunk.content))
+            if not 0 <= chunk.start_offset <= chunk.end_offset <= len(note.content):
+                raise ConflictError("Search section reference is invalid; reindex the note")
+            sections.append(
+                Section(note, chunk.heading, note.content[chunk.start_offset : chunk.end_offset])
+            )
         return sections

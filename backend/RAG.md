@@ -2,7 +2,7 @@
 
 LangGraph still runs `retrieve -> draft -> validate`. Creation and feedback both
 use the same semantic retriever. Keyword ranking has been removed from this flow.
-The Library's ordinary text-search endpoint is unchanged.
+The Library's ordinary text-search endpoint reads current Markdown files.
 
 ## Libraries
 
@@ -18,9 +18,9 @@ The Library's ordinary text-search endpoint is unchanged.
 - `langgraph`: orchestrates retrieval, generation, and validation before review.
 
 There is no custom keyword relevance algorithm or embedding HTTP client in this flow.
-After upgrading from the previous chunker, restart the backend and worker and run
+After upgrading from a previous index format, restart the backend and worker and run
 `POST /api/v1/index/reindex` for your account (or the worker's `--backfill` command
-for all notes). The new `sections-v2-langchain` index identity prevents mixing old
+for all notes). The new `sections-v3-file-references` index identity prevents mixing old
 and new chunk boundaries. Organization waits until indexing completes.
 
 ## Local setup
@@ -58,13 +58,41 @@ Run commands from `backend` with its virtual environment activated.
    ollama pull nomic-embed-text
    ```
 
-4. Start the backend normally:
+4. For an existing database with `notes.content`, stop the API and workers, back
+   up the database and Markdown directory, then run:
+
+   ```bash
+   python -m app.infrastructure.database.migrate_file_storage
+   ```
+
+   This explicit migration verifies every Markdown file matches the legacy DB
+   content before dropping the duplicate note/chunk text columns. Missing files
+   or differences abort the transaction; reconcile them first. It clears derived
+   vectors and queues every note for rebuilding. It never overwrites Markdown.
+   Fresh databases do not need this step. Startup refuses the legacy schema with
+   an actionable message instead of silently discarding data.
+
+   If the database still has a `folders` table, run the folder migration next:
+
+   ```bash
+   python -m app.infrastructure.database.migrate_storage_folders
+   ```
+
+   It checks registered note files, materializes legacy directories (including
+   empty ones), removes `notes.folder_id` and the `folders` table, and queues notes
+   for reindexing because their version fingerprints changed. It refuses missing
+   files or inconsistent file references. Directory creation is additive and
+   idempotent; a failed migration may leave empty directories but does not delete
+   note files. Database changes roll back on failure. Existing pending update
+   proposals should be regenerated after migration because their versions changed.
+
+   Start the backend:
 
    ```bash
    uvicorn app.main:app --reload --log-level debug
    ```
 
-   Startup enables `vector` and creates the two new tables. The database role
+   Startup enables `vector` and creates missing tables. The database role
    needs permission to create the extension, or an administrator must run
    `CREATE EXTENSION IF NOT EXISTS vector;` once beforehand. Existing note tables
    and files are not dropped or rewritten.
@@ -93,15 +121,29 @@ listed in `.env.example`.
 
 ## What is stored
 
-- PostgreSQL `notes` remains the source used to plan edits; Markdown storage is unchanged.
-- `note_sections` stores user/note IDs, heading, exact chunk text, note version,
-  embedding model identity, and a 768-dimensional vector.
+- Markdown files are the source of truth. PostgreSQL `notes` stores metadata and
+  storage keys, with no content column. Repository reads hydrate content from the
+  storage port; ordinary text search scans those files (linear in library size).
+- Folders are read from storage, not a database table. Local storage scans actual
+  directories, including empty ones; S3 derives prefixes and uses trailing-slash
+  markers for empty folders. Folder APIs use paths rather than UUIDs, and note
+  create/update/filter requests use `folder_path`. Renames/moves update descendant
+  note paths and storage keys and queue reindexing. Only empty folders may be
+  deleted. Failed rename commits attempt to move the directory back; a process
+  crash during a folder move still needs reconciliation. Perform renames through
+  the app; external renames are not automatically mapped to existing note IDs.
+- `note_sections` stores user/note IDs, heading, character start/end offsets,
+  source version, embedding model identity, and a 768-dimensional vector. It
+  contains no chunk body. Offsets refer to decoded UTF-8 text, not byte positions.
+- Proposal drafts, review previews and acceptance receipts still contain text in
+  `structuring_proposals` for the existing review/history workflow. These are
+  snapshots, not the source used to read or index library notes.
 - `note_index_jobs` stores durable indexing work, attempts, retry time, and leases.
   Errors store exception type only, not note contents or provider response bodies.
 
 A note create/update invalidates its previous chunks and queues work in the same
-database transaction. Deletion removes chunks and jobs. An indexing worker splits
-changed notes at Markdown headings, using LangChain to subdivide long sections into
+database transaction. Deletion removes chunks and jobs. An indexing worker reads
+Markdown through the storage port and splits it at headings, using LangChain to subdivide long sections into
 UTF-8-safe chunks of up to 1,200 bytes. Each embedding includes bounded title/path/heading/tag
 metadata and uses Nomic's `search_document:` prefix. Queries use `search_query:`.
 
@@ -116,7 +158,8 @@ the chunk budget.
 
 The retriever uses pgvector cosine distance with user and embedding-model filters.
 It fetches only matching note records, not every note in the library. Results are
-checked against current note versions before entering the LLM context. Feedback
+loaded from their files and checked against current note versions before slices
+are read using the stored offsets and passed into the LLM context. Feedback
 includes the original input, original instructions, and current feedback in its
 new semantic query. Approval still verifies versions again before applying edits.
 
@@ -130,6 +173,21 @@ organization returns HTTP 409. It does not silently create duplicates from an
 incomplete index or fall back to keyword search. A stale candidate also returns
 409 and requires reindexing. Empty libraries can create their first proposal
 without calling the embedding provider.
+
+The worker scans registered note files every 30 seconds and queues changed files.
+Between scans, stale retrieved candidates are rejected by the file-derived version
+check; an externally changed file that did not match the old vectors may be missed
+until the next scan. Missing files invalidate the index and eventually produce a
+failed indexing job; restore the file or reconcile its metadata before reindexing.
+The scanner does not discover unregistered Markdown or infer external renames.
+Use app operations for creation/moves/deletion. Both API and worker must use the
+same storage path/bucket; Compose mounts the same notes volume in both services.
+
+Local saves use atomic replacement so readers never see partially written files.
+Approval writes files, then commits metadata and indexing jobs; failures attempt
+to restore files using the existing compensating transaction. A process crash
+between file writes and DB commit still requires reconciliation. Database and
+filesystem writes are not a single atomic transaction.
 
 Authenticated maintenance endpoints (available at `/docs`):
 

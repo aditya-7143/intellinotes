@@ -1,17 +1,20 @@
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import String, cast, delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.ports import NoteRepository
+from app.application.note_content import load_note_content
+from app.application.ports import NoteRepository, StorageRepository
 from app.domain.models import Note, NoteIndexJob, NoteSection
 from app.infrastructure.rag.index import enqueue_note
 
 
 class SQLAlchemyNoteRepository(NoteRepository):
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, storage: StorageRepository):
         self.session = session
+        self.storage = storage
 
     async def create(self, note: Note) -> Note:
         self.session.add(note)
@@ -25,28 +28,31 @@ class SQLAlchemyNoteRepository(NoteRepository):
         if for_update:
             query = query.with_for_update().execution_options(populate_existing=True)
         result = await self.session.execute(query)
-        return result.scalar_one_or_none()
+        note = result.scalar_one_or_none()
+        return await load_note_content(note, self.storage) if note else None
 
-    async def get_by_user(self, user_id: UUID, folder_id: Optional[UUID] = None) -> list[Note]:
+    async def get_by_user(self, user_id: UUID, folder_path: Optional[str] = None) -> list[Note]:
         query = select(Note).where(Note.user_id == user_id)
-        if folder_id:
-            query = query.where(Note.folder_id == folder_id)
+        if folder_path is not None:
+            query = query.where(Note.folder_path == folder_path)
         query = query.order_by(Note.updated_at.desc())
         result = await self.session.execute(query)
-        return list(result.scalars().all())
+        return [await load_note_content(note, self.storage) for note in result.scalars().all()]
 
     async def get_by_storage_key(self, storage_key: str) -> Optional[Note]:
         result = await self.session.execute(select(Note).where(Note.storage_key == storage_key))
         return result.scalar_one_or_none()
 
     async def update(self, note: Note) -> Note:
+        # A body-only edit no longer dirties an ORM column automatically.
+        note.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         await self.session.refresh(note)
         await enqueue_note(self.session, note)
         return note
 
     async def delete(self, note_id: UUID) -> bool:
-        note = await self.get_by_id(note_id)
+        note = await self.session.get(Note, note_id)
         if note:
             await self.session.execute(delete(NoteSection).where(NoteSection.note_id == note_id))
             await self.session.execute(delete(NoteIndexJob).where(NoteIndexJob.note_id == note_id))
@@ -55,17 +61,12 @@ class SQLAlchemyNoteRepository(NoteRepository):
         return False
 
     async def search(self, user_id: UUID, query: str) -> list[Note]:
-        search_term = f"%{query}%"
-        result = await self.session.execute(
-            select(Note)
-            .where(
-                Note.user_id == user_id,
-                or_(
-                    Note.title.ilike(search_term),
-                    Note.content.ilike(search_term),
-                    cast(Note.tags, String).ilike(search_term),
-                ),
-            )
-            .order_by(Note.updated_at.desc())
-        )
-        return list(result.scalars().all())
+        # Literal text search reads files; PostgreSQL holds no searchable body copy.
+        term = query.casefold()
+        return [
+            note
+            for note in await self.get_by_user(user_id)
+            if term in note.title.casefold()
+            or term in note.content.casefold()
+            or any(term in tag.casefold() for tag in note.tags)
+        ]

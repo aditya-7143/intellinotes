@@ -15,7 +15,7 @@ class OllamaEmbeddingProvider:
         settings = get_settings()
         self.model = settings.EMBEDDING_MODEL
         # Chunking changes require a fresh index; do not mix old and new chunks.
-        self.model_key = f"ollama:{self.model}:768:sections-v2-langchain"
+        self.model_key = f"ollama:{self.model}:768:sections-v3-file-references"
         self.client = OllamaEmbeddings(
             model=self.model,
             base_url=settings.EMBEDDING_BASE_URL,

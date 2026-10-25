@@ -36,7 +36,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      index-worker:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - notes_data:/app/data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  index-worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -44,6 +51,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/intellinotes
       - EMBEDDING_BASE_URL=http://ollama:11434
       - EMBEDDING_MODEL=nomic-embed-text
+      - STORAGE_TYPE=local
+      - LOCAL_STORAGE_PATH=/app/data/notes
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,14 +60,8 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: python -m app.infrastructure.rag.worker
-
-  ollama:
-        condition: service_healthy
-    volumes:
-      - ./backend:/app
       - notes_data:/app/data
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: python -m app.infrastructure.rag.worker
 
   ollama:
     image: ollama/ollama:latest

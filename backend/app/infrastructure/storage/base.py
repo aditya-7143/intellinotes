@@ -4,6 +4,22 @@ from typing import Optional
 
 class BaseStorage(ABC):
     @abstractmethod
+    async def list_folders(self, prefix: str) -> list[str]:
+        pass
+
+    @abstractmethod
+    async def create_folder(self, key: str) -> None:
+        pass
+
+    @abstractmethod
+    async def move_folder(self, key: str, destination: str) -> None:
+        pass
+
+    @abstractmethod
+    async def delete_folder(self, key: str) -> bool:
+        pass
+
+    @abstractmethod
     async def save(self, key: str, content: bytes) -> str:
         pass
 

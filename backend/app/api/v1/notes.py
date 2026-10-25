@@ -26,19 +26,19 @@ async def create_note(
 ):
     use_case = CreateNoteUseCase(note_repo, folder_repo, storage_repo)
     note = await use_case.execute(
-        user_id, note_data.title, note_data.content, note_data.folder_id, note_data.tags
+        user_id, note_data.title, note_data.content, note_data.folder_path, note_data.tags
     )
     return note
 
 
 @router.get("", response_model=list[NoteResponse])
 async def list_notes(
-    folder_id: UUID | None = None,
+    folder_path: str | None = None,
     user_id=Depends(get_current_user_id),
     note_repo=Depends(get_note_repo),
 ):
     use_case = ListNotesUseCase(note_repo)
-    notes = await use_case.execute(user_id, folder_id)
+    notes = await use_case.execute(user_id, folder_path)
     return notes
 
 
@@ -73,7 +73,7 @@ async def update_note(
 ):
     use_case = UpdateNoteUseCase(note_repo, folder_repo, storage_repo)
     note = await use_case.execute(
-        note_id, user_id, note_data.title, note_data.content, note_data.folder_id, note_data.tags
+        note_id, user_id, note_data.title, note_data.content, note_data.folder_path, note_data.tags
     )
     return note
 

@@ -126,23 +126,23 @@ export const authApi = {
 
 export const folderApi = {
   list: () => api.get<Folder[]>('/folders'),
-  create: (data: { name: string; parent_id?: string }) =>
+  create: (data: { name: string; parent_path?: string }) =>
     api.post<Folder>('/folders', data),
-  get: (id: string) => api.get<Folder>(`/folders/${id}`),
-  update: (id: string, data: { name?: string; parent_id?: string }) =>
-    api.patch<Folder>(`/folders/${id}`, data),
-  delete: (id: string) => api.delete(`/folders/${id}`),
+  get: (path: string) => api.get<Folder>('/folders/item', { params: { path } }),
+  update: (path: string, data: { name?: string; parent_path?: string }) =>
+    api.patch<Folder>('/folders/item', data, { params: { path } }),
+  delete: (path: string) => api.delete('/folders/item', { params: { path } }),
 };
 
 export const noteApi = {
-  list: (folderId?: string) =>
-    api.get<Note[]>('/notes', { params: { folder_id: folderId } }),
+  list: (folderPath?: string) =>
+    api.get<Note[]>('/notes', { params: { folder_path: folderPath } }),
   search: (query: string) =>
     api.get<Note[]>('/notes/search', { params: { q: query } }),
-  create: (data: { title?: string; content: string; folder_id?: string; tags?: string[] }) =>
+  create: (data: { title?: string; content: string; folder_path?: string; tags?: string[] }) =>
     api.post<Note>('/notes', data),
   get: (id: string) => api.get<Note>(`/notes/${id}`),
-  update: (id: string, data: { title?: string; content?: string; folder_id?: string; tags?: string[] }) =>
+  update: (id: string, data: { title?: string; content?: string; folder_path?: string; tags?: string[] }) =>
     api.patch<Note>(`/notes/${id}`, data),
   delete: (id: string) => api.delete(`/notes/${id}`),
 };
